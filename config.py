@@ -13,6 +13,13 @@ MOONSHOT_BASE_URL = "https://api.moonshot.cn/v1"
 # Use Moonshot v1 8k or 32k for longer context if needed
 MOONSHOT_MODEL = "moonshot-v1-8k"
 
+# Debug print for CI environment
+if os.getenv("CI"):
+    print(f"[DEBUG] CI Mode: {IS_CI}")
+    print(f"[DEBUG] Moonshot API Key present: {bool(MOONSHOT_API_KEY)}")
+    print(f"[DEBUG] SMTP Host: {os.getenv('SMTP_HOST')}")
+    print(f"[DEBUG] SMTP User present: {bool(os.getenv('SMTP_USER'))}")
+
 # --- Email Config ---
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
