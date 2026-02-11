@@ -2,12 +2,13 @@
 
 import logging
 import re
-from datetime import datetime
+from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup
 
 from src.models import Article
+from config import DATA_SOURCES
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +25,25 @@ HEADERS = {
 
 def _clean_text(text: str, max_len: int = 500) -> str:
     """Clean and truncate text."""
+    if not text:
+        return ""
+    text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:max_len]
 
 
-def scrape_plattform_i40(max_items: int = 20) -> list[Article]:
-    """Scrape Plattform Industrie 4.0 for use cases and news."""
-    url = "https://www.plattform-i40.de/IP/Navigation/EN/Industrie40/UseCases/use-cases.html"
-    logger.info(f"[WEB] Fetching Plattform Industrie 4.0: {url}")
+def _make_absolute(url: str, base_url: str) -> str:
+    """Ensure URL is absolute."""
+    if url.startswith("http"):
+        return url
+    from urllib.parse import urljoin
+    return urljoin(base_url, url)
+
+
+def scrape_generic_web(source_name: str, url: str, selector: str,
+                       lang: str, category: str, max_items: int = 20) -> list[Article]:
+    """Generic scraper for list-based news pages."""
+    logger.info(f"[WEB] Fetching {source_name}: {url}")
     articles: list[Article] = []
 
     try:
@@ -39,93 +51,80 @@ def scrape_plattform_i40(max_items: int = 20) -> list[Article]:
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        # Look for article/card links on the page
-        for item in soup.select("a.c-teaser, a.card, article a, .use-case a")[:max_items]:
-            title_el = item.select_one("h2, h3, .title, .headline")
-            title = title_el.get_text(strip=True) if title_el else item.get_text(strip=True)
-            link = item.get("href", "")
+        # Select items based on provided CSS selector
+        items = soup.select(selector)[:max_items]
 
-            if not title or not link:
+        for item in items:
+            # 1. Try to find title
+            title_el = item.select_one("h2, h3, h4, .title, .headline, span.text, strong")
+            # Fallback: links usually contain the text if no title element
+            if not title_el and item.name == "a":
+                title_el = item
+            
+            title = title_el.get_text(strip=True) if title_el else item.get_text(strip=True)
+
+            # 2. Try to find link
+            link_el = item if item.name == "a" else item.select_one("a")
+            link = link_el.get("href", "") if link_el else ""
+
+            if not title or len(title) < 5 or not link:
                 continue
 
-            # Make absolute URL
-            if link.startswith("/"):
-                link = "https://www.plattform-i40.de" + link
-
-            snippet_el = item.select_one("p, .description, .summary, .teaser-text")
+            # 3. Try to find snippet
+            snippet_el = item.select_one("p, .description, .summary, .teaser, .text")
             snippet = snippet_el.get_text(strip=True) if snippet_el else ""
 
             articles.append(Article(
                 title=_clean_text(title),
-                url=link,
-                source="Plattform Industrie 4.0",
-                content_snippet=_clean_text(snippet),
-                language="de",
-                category="policy",
-            ))
-
-        logger.info(f"[WEB] Got {len(articles)} articles from Plattform Industrie 4.0")
-
-    except Exception as e:
-        logger.error(f"[WEB] Failed to scrape Plattform Industrie 4.0: {e}")
-
-    return articles
-
-
-def scrape_fraunhofer_press(institute: str = "ipa", max_items: int = 20) -> list[Article]:
-    """Scrape Fraunhofer institute press releases page."""
-    urls = {
-        "ipa": "https://www.ipa.fraunhofer.de/de/presse/presseinformationen.html",
-        "iapt": "https://www.2.iapt.fraunhofer.de/en/press.html",
-    }
-    url = urls.get(institute, urls["ipa"])
-    lang = "de" if institute == "ipa" else "en"
-    name = f"Fraunhofer {institute.upper()}"
-
-    logger.info(f"[WEB] Fetching {name}: {url}")
-    articles: list[Article] = []
-
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        for item in soup.select("a.teaser, .press-item a, article a, .news-item a")[:max_items]:
-            title_el = item.select_one("h2, h3, .title, .headline")
-            title = title_el.get_text(strip=True) if title_el else item.get_text(strip=True)
-            link = item.get("href", "")
-
-            if not title or len(title) < 10 or not link:
-                continue
-
-            if link.startswith("/"):
-                base = "https://www.ipa.fraunhofer.de" if institute == "ipa" else "https://www.2.iapt.fraunhofer.de"
-                link = base + link
-
-            snippet_el = item.select_one("p, .description, .teaser-text")
-            snippet = snippet_el.get_text(strip=True) if snippet_el else ""
-
-            articles.append(Article(
-                title=_clean_text(title),
-                url=link,
-                source=name,
+                url=_make_absolute(link, url),
+                source=source_name,
                 content_snippet=_clean_text(snippet),
                 language=lang,
-                category="research",
+                category=category,
             ))
 
-        logger.info(f"[WEB] Got {len(articles)} articles from {name}")
+        logger.info(f"[WEB] Got {len(articles)} articles from {source_name}")
 
     except Exception as e:
-        logger.error(f"[WEB] Failed to scrape {name}: {e}")
+        logger.error(f"[WEB] Failed to scrape {source_name}: {e}")
 
     return articles
 
 
 def scrape_web_sources(max_items: int = 20) -> list[Article]:
-    """Run all static web scrapers and return combined results."""
+    """Run scrapers for all web-type data sources defined in config."""
     articles: list[Article] = []
-    articles.extend(scrape_plattform_i40(max_items))
-    articles.extend(scrape_fraunhofer_press("ipa", max_items))
-    articles.extend(scrape_fraunhofer_press("iapt", max_items))
+    
+    # Map sources to specific selectors or generic logic
+    # (Source Name -> CSS Selector for the valid item container or link)
+    selectors = {
+        "Plattform Industrie 4.0": ".c-teaser, .card, article a, .use-case a",
+        "Fraunhofer IPA Press": ".press-item, .news-item, article",
+        "DFKI News": ".news-item, article, .portlet-body a",
+        "TUM fml (Logistics)": ".news-item, article, .ce-textpic",
+        "SimPlan Blog/News": "article, .post, .entry",
+        "Siemens Digital Industries": "a.card, .card__link",
+        "VDI Nachrichten Tech": "article, .vdi-card",
+        "de:hub Smart Systems": ".news-item, .card",
+    }
+    
+    # Generic fallback selector
+    default_selector = "article, .news-item, .card, .entry, .post"
+
+    web_sources = [s for s in DATA_SOURCES if s.source_type == "web"]
+
+    for source in web_sources:
+        selector = selectors.get(source.name, default_selector)
+        
+        # Special case handling if needed, otherwise generic
+        found = scrape_generic_web(
+            source_name=source.name,
+            url=source.url,
+            selector=selector,
+            lang=source.language,
+            category=source.category,
+            max_items=max_items
+        )
+        articles.extend(found)
+
     return articles

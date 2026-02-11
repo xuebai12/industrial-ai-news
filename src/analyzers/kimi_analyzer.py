@@ -38,16 +38,17 @@ SYSTEM_PROMPT = """\
 {
     "category_tag": "类别标签，如 Digital Twin / Research / Industry 4.0 / Simulation / AI",
     "title_zh": "文章标题的中文翻译",
-    "core_tech_points": "核心技术要点（一到两句话）",
-    "german_context": "德方应用背景或相关企业（如适用，否则填写该技术的应用场景）",
+    "core_tech_points": "核心技术要点（一到两句话）。如果涉及具体软件（如 AnyLogic, Siemens Tecnomatix, SAP DM），请明确指出。",
+    "german_context": "德方应用背景：1. 涉及企业/机构 2. 对德国'中型企业 (Mittelstand)'的潜在价值",
     "summary_zh": "一句话中文总结"
 }
 
 要求：
 1. 如果原文是德语或英语，请翻译为中文
-2. 提取关键技术创新点
-3. 特别关注德国工业背景（Fraunhofer、西门子、宝马等）
-4. 保持简洁专业
+2. 提取关键技术创新点，特别是“新(Neu)”或“原型(Prototype)”相关内容
+3. 高亮具体的工业软件工具名称
+4. 明确指出对德国制造业尤其是中小企业的应用价值
+5. 保持简洁专业
 """
 
 
