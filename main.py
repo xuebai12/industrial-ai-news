@@ -36,9 +36,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output",
-        choices=["email", "markdown", "both"],
+        choices=["email", "markdown", "both", "notion"],
         default="email",
-        help="Output format (default: email)",
+        help="Output format: email, markdown, both, or notion",
     )
     parser.add_argument(
         "--skip-dynamic",
@@ -178,9 +178,14 @@ def main():
             if args.output in ("email", "both"):
                 send_email(analyzed, today)
 
-            if args.output in ("markdown", "both") or True: # Always save markdown in CI
+            if args.output in ("markdown", "both") or True:  # Always save markdown
                 filepath = save_digest_markdown(analyzed, today=today, output_dir="output")
                 logger.info(f"📄 Markdown digest: {filepath}")
+
+            if args.output in ("notion", "both"):
+                from src.delivery.notion_sender import push_to_notion
+                pushed = push_to_notion(analyzed, today)
+                logger.info(f"📊 Notion: {pushed} entries pushed")
 
         logger.info("\n✅ Pipeline complete!")
 

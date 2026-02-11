@@ -59,6 +59,10 @@ SMTP_PASS = os.getenv("SMTP_PASS", "")
 EMAIL_TO = os.getenv("EMAIL_TO", "")
 EMAIL_FROM = os.getenv("EMAIL_FROM", "")
 
+# --- Notion Config ---
+NOTION_API_KEY = os.getenv("NOTION_API_KEY", "")
+NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID", "")
+
 # --- Pipeline Config ---
 _max_articles = os.getenv("MAX_ARTICLES_PER_SOURCE")
 MAX_ARTICLES_PER_SOURCE = int(_max_articles) if _max_articles else 20
