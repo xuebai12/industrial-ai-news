@@ -38,13 +38,15 @@ SYSTEM_PROMPT = """\
 {
     "category_tag": "类别标签，如 Digital Twin / Research / Industry 4.0 / Simulation / AI",
     "title_zh": "文章标题的中文翻译",
+    "title_en": "文章标题的英文原文（或英文翻译）",
     "core_tech_points": "核心技术要点（一到两句话）。如果涉及具体软件（如 AnyLogic, Siemens Tecnomatix, SAP DM），请明确指出。",
     "german_context": "德方应用背景：1. 涉及企业/机构 2. 对德国'中型企业 (Mittelstand)'的潜在价值",
-    "summary_zh": "一句话中文总结"
+    "summary_zh": "一句话中文总结",
+    "summary_en": "One-sentence English summary"
 }
 
 要求：
-1. 如果原文是德语或英语，请翻译为中文
+1. 提供中英双语的标题和总结
 2. 提取关键技术创新点，特别是“新(Neu)”或“原型(Prototype)”相关内容
 3. 高亮具体的工业软件工具名称
 4. 明确指出对德国制造业尤其是中小企业的应用价值
@@ -75,7 +77,7 @@ def analyze_article(article: Article) -> AnalyzedArticle | None:
                 {"role": "user", "content": user_content},
             ],
             temperature=0.3,
-            max_tokens=500,
+            max_tokens=600,
         )
 
         raw = response.choices[0].message.content.strip()
@@ -91,11 +93,13 @@ def analyze_article(article: Article) -> AnalyzedArticle | None:
         analyzed = AnalyzedArticle(
             category_tag=data.get("category_tag", "Other"),
             title_zh=data.get("title_zh", article.title),
+            title_en=data.get("title_en", article.title),
             core_tech_points=data.get("core_tech_points", ""),
             german_context=data.get("german_context", ""),
             source_name=article.source,
             source_url=article.url,
             summary_zh=data.get("summary_zh", ""),
+            summary_en=data.get("summary_en", ""),
             original=article,
         )
 

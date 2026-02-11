@@ -33,7 +33,9 @@ EMAIL_TEMPLATE = Template("""\
               padding: 3px 10px; border-radius: 12px; font-size: 12px; 
               font-weight: 600; margin-bottom: 8px; }
   .article h2 { margin: 6px 0 10px; font-size: 16px; color: #1a237e; }
-  .summary { font-size: 14px; line-height: 1.6; color: #555; margin-bottom: 10px; }
+  .english-title { font-size: 14px; color: #555; margin-bottom: 8px; font-style: italic; }
+  .summary { font-size: 14px; line-height: 1.6; color: #333; margin-bottom: 6px; }
+  .english-summary { font-size: 13px; line-height: 1.5; color: #666; margin-bottom: 10px; border-left: 2px solid #ddd; padding-left: 10px; }
   .tech-points { font-size: 13px; color: #666; border-left: 3px solid #2196f3; 
                  padding-left: 12px; margin: 10px 0; }
   .context { font-size: 12px; color: #888; }
@@ -46,7 +48,7 @@ EMAIL_TEMPLATE = Template("""\
 </head>
 <body>
   <div class="header">
-    <h1>📅 工业 AI 每日摘要</h1>
+    <h1>📅 工业 AI 每日摘要 (Industrial AI Daily)</h1>
     <div class="date">{{ today }} | Industrial AI & Simulation Intelligence</div>
   </div>
 
@@ -58,20 +60,24 @@ EMAIL_TEMPLATE = Template("""\
   <div class="article">
     <span class="category">{{ article.category_tag }}</span>
     <h2>{{ article.title_zh }}</h2>
-    <div class="summary">摘要：{{ article.summary_zh }}</div>
+    <div class="english-title">{{ article.title_en }}</div>
+    <div class="summary"><strong>摘要：</strong>{{ article.summary_zh }}</div>
+    {% if article.summary_en %}
+    <div class="english-summary">{{ article.summary_en }}</div>
+    {% endif %}
     <div class="tech-points">🔬 {{ article.core_tech_points }}</div>
     {% if article.german_context %}
     <div class="context">🏭 {{ article.german_context }}</div>
     {% endif %}
     <div class="source">
-      来源：{{ article.source_name }} | 
-      <a href="{{ article.source_url }}">点击查看原文 →</a>
+      Source: {{ article.source_name }} | 
+      <a href="{{ article.source_url }}">Link / 原文 →</a>
     </div>
   </div>
   {% endfor %}
 
   <div class="footer">
-    Industrial AI Intelligence System · Powered by Ollama + Kimi Cloud
+    Industrial AI Intelligence System · Powered by Moonshot AI (Kimi)
   </div>
 </body>
 </html>
@@ -91,7 +97,7 @@ def render_digest_text(articles: list[AnalyzedArticle], today: str | None = None
         today = date.today().strftime("%Y-%m-%d")
 
     lines = [
-        f"📅 {today} 工业 AI 每日摘要",
+        f"📅 {today} 工业 AI 每日摘要 (Industrial AI Daily)",
         f"📊 今日共筛选出 {len(articles)} 条相关情报",
         "=" * 60,
         "",
@@ -99,11 +105,14 @@ def render_digest_text(articles: list[AnalyzedArticle], today: str | None = None
 
     for article in articles:
         lines.append(f"[{article.category_tag}] {article.title_zh}")
-        lines.append(f"  摘要：{article.summary_zh}")
-        lines.append(f"  🔬 {article.core_tech_points}")
+        lines.append(f"  {article.title_en}")
+        lines.append(f"  🇨🇳 摘要：{article.summary_zh}")
+        if article.summary_en:
+            lines.append(f"  🇬🇧 Summary: {article.summary_en}")
+        lines.append(f"  🔬 核心点：{article.core_tech_points}")
         if article.german_context:
-            lines.append(f"  🏭 {article.german_context}")
-        lines.append(f"  来源：{article.source_name} | {article.source_url}")
+            lines.append(f"  🏭 背景：{article.german_context}")
+        lines.append(f"  📎 来源：{article.source_name} | {article.source_url}")
         lines.append("")
 
     return "\n".join(lines)
@@ -121,7 +130,7 @@ def send_email(articles: list[AnalyzedArticle], today: str | None = None) -> boo
     html_content = render_digest(articles, today)
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"📅 {today} 工业 AI 每日摘要 ({len(articles)} 条)"
+    msg["Subject"] = f"📅 {today} Industrial AI Digest ({len(articles)})"
     msg["From"] = EMAIL_FROM or SMTP_USER
     msg["To"] = EMAIL_TO
 
@@ -157,14 +166,17 @@ def save_digest_markdown(articles: list[AnalyzedArticle],
     filepath = os.path.join(output_dir, f"digest-{today}.md")
 
     lines = [
-        f"# 📅 {today} 工业 AI 每日摘要\n",
+        f"# 📅 {today} 工业 AI 每日摘要 (Industrial AI Daily)\n",
         f"> 📊 今日共筛选出 **{len(articles)}** 条相关情报\n",
         "---\n",
     ]
 
     for article in articles:
         lines.append(f"### [{article.category_tag}] {article.title_zh}\n")
-        lines.append(f"**摘要：** {article.summary_zh}\n")
+        lines.append(f"*{article.title_en}*\n\n")
+        lines.append(f"**🇨🇳 摘要：** {article.summary_zh}\n\n")
+        if article.summary_en:
+            lines.append(f"**🇬🇧 Summary:** {article.summary_en}\n\n")
         lines.append(f"🔬 **核心技术：** {article.core_tech_points}\n")
         if article.german_context:
             lines.append(f"🏭 **应用背景：** {article.german_context}\n")
