@@ -21,7 +21,7 @@ if USE_LOCAL_OLLAMA:
     KIMI_BASE_URL = "http://localhost:11434/v1"
     KIMI_MODEL = os.getenv("OLLAMA_MODEL", "kimi-k2.5:cloud")
     API_PROVIDER = "Local_Ollama"
-elif NVIDIA_API_KEY and NVIDIA_API_KEY.startswith("nvapi-"):
+elif NVIDIA_API_KEY and len(NVIDIA_API_KEY) > 10:  # Relaxed check (was startswith nvapi-)
     KIMI_API_KEY = NVIDIA_API_KEY
     KIMI_BASE_URL = "https://integrate.api.nvidia.com/v1"
     KIMI_MODEL = "moonshotai/kimi-k2.5"
