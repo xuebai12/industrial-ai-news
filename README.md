@@ -62,6 +62,9 @@ python main.py --output markdown
 
 # 📧 发送邮件 (需配置 SMTP)
 python main.py --output email
+
+# 🧪 模拟测试 (无需 API Key，生成假数据)
+python main.py --mock --output markdown
 ```
 
 ---
@@ -124,6 +127,9 @@ python main.py --output markdown
 
 # 📧 Send Email (Requires SMTP config)
 python main.py --output email
+
+# 🧪 Mock Mode (Simulate AI response, no API key needed)
+python main.py --mock --output markdown
 ```
 
 ---

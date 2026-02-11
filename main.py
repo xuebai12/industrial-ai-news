@@ -56,6 +56,11 @@ def parse_args() -> argparse.Namespace:
         default=20,
         help="Max articles per source (default: 20)",
     )
+    parser.add_argument(
+        "--mock",
+        action="store_true",
+        help="Use mock data for Kimi analysis (simulated response)",
+    )
     return parser.parse_args()
 
 
@@ -72,6 +77,8 @@ def main():
 
         logger.info("=" * 60)
         logger.info(f"📅 Industrial AI Intelligence Pipeline — {today}")
+        if args.mock:
+            logger.info("🧪 MOCK MODE ENABLED: Using simulated AI responses")
         logger.info("=" * 60)
 
         # =============================================
@@ -147,7 +154,7 @@ def main():
         logger.info("\n📝 Stage 3: Deep analysis via Kimi Cloud...")
         from src.analyzers.kimi_analyzer import analyze_articles
 
-        analyzed = analyze_articles(relevant_articles)
+        analyzed = analyze_articles(relevant_articles, mock=args.mock)
         logger.info(f"📊 Analyzed articles: {len(analyzed)}")
 
         if not analyzed:

@@ -54,11 +54,25 @@ SYSTEM_PROMPT = """\
 """
 
 
-def analyze_article(article: Article) -> AnalyzedArticle | None:
+def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | None:
     """
     Send a single article to Kimi for deep analysis.
     Returns an AnalyzedArticle or None if analysis fails.
     """
+    if mock:
+        return AnalyzedArticle(
+            category_tag="Digital Twin",
+            title_zh=f"[测试] {article.title} (CN)",
+            title_en=f"[TEST] {article.title} (EN)",
+            core_tech_points="This is a simulated technical point extracted by the mock analyzer.",
+            german_context="Simulated German Industry Context (e.g. Siemens/BMW application).",
+            source_name=article.source,
+            source_url=article.url,
+            summary_zh="这是一个测试摘要，用于验证系统流程是否通畅。",
+            summary_en="This is a test summary to verify the pipeline flow.",
+            original=article,
+        )
+
     client = _get_client()
 
     user_content = (
@@ -112,11 +126,13 @@ def analyze_article(article: Article) -> AnalyzedArticle | None:
         return AnalyzedArticle(
             category_tag=article.category,
             title_zh=article.title,
+            title_en=article.title,
             core_tech_points="(分析失败)",
             german_context=article.source,
             source_name=article.source,
             source_url=article.url,
             summary_zh=article.content_snippet[:100],
+            summary_en="",
             original=article,
         )
     except Exception as e:
@@ -124,17 +140,17 @@ def analyze_article(article: Article) -> AnalyzedArticle | None:
         return None
 
 
-def analyze_articles(articles: list[Article]) -> list[AnalyzedArticle]:
+def analyze_articles(articles: list[Article], mock: bool = False) -> list[AnalyzedArticle]:
     """
     Analyze a batch of articles through Kimi Cloud.
     Returns list of successfully analyzed articles.
     """
-    logger.info(f"[KIMI] Starting analysis of {len(articles)} articles")
+    logger.info(f"[KIMI] Starting analysis of {len(articles)} articles (Mock={mock})")
     results: list[AnalyzedArticle] = []
 
     for i, article in enumerate(articles, 1):
         logger.info(f"[KIMI] Processing {i}/{len(articles)}: {article.title[:50]}")
-        analyzed = analyze_article(article)
+        analyzed = analyze_article(article, mock=mock)
         if analyzed:
             results.append(analyzed)
 

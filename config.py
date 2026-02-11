@@ -13,6 +13,8 @@ MOONSHOT_BASE_URL = "https://api.moonshot.cn/v1"
 # Use Moonshot v1 8k or 32k for longer context if needed
 MOONSHOT_MODEL = "moonshot-v1-8k"
 
+IS_CI = os.getenv("CI", "false").lower() == "true"
+
 # Debug print for CI environment
 if os.getenv("CI"):
     print(f"[DEBUG] CI Mode: {IS_CI}")
@@ -22,16 +24,21 @@ if os.getenv("CI"):
 
 # --- Email Config ---
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+
+_smtp_port = os.getenv("SMTP_PORT")
+SMTP_PORT = int(_smtp_port) if _smtp_port else 587
+
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 EMAIL_TO = os.getenv("EMAIL_TO", "")
 EMAIL_FROM = os.getenv("EMAIL_FROM", "")
 
 # --- Pipeline Config ---
-MAX_ARTICLES_PER_SOURCE = int(os.getenv("MAX_ARTICLES_PER_SOURCE", "20"))
-RELEVANCE_THRESHOLD = int(os.getenv("RELEVANCE_THRESHOLD", "1"))  # Reduced threshold to catch more articles
-IS_CI = os.getenv("CI", "false").lower() == "true"
+_max_articles = os.getenv("MAX_ARTICLES_PER_SOURCE")
+MAX_ARTICLES_PER_SOURCE = int(_max_articles) if _max_articles else 20
+
+_relevance_threshold = os.getenv("RELEVANCE_THRESHOLD")
+RELEVANCE_THRESHOLD = int(_relevance_threshold) if _relevance_threshold else 1
 
 
 # --- Data Source Definitions ---
