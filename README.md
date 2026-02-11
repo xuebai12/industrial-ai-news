@@ -49,7 +49,8 @@ cp .env.example .env
 ```
 
 在 `.env` 文件中填入：
-*   `MOONSHOT_API_KEY`: Kimi/Moonshot API 密钥 (必填)
+*   `MOONSHOT_API_KEY`: Kimi/Moonshot API 密钥 (必填，二选一)
+*   `NVIDIA_API_KEY`: NVIDIA NIM API 密钥 (可选，若填写则优先使用，模型为 `kimi-k2.5`)
 *   `SMTP_*`: 邮件发送配置 (选填，用于邮件推送)
 
 #### 3. 运行
@@ -114,7 +115,8 @@ cp .env.example .env
 ```
 
 Edit `.env` and set:
-*   `MOONSHOT_API_KEY`: Your Kimi/Moonshot API key (Required).
+*   `MOONSHOT_API_KEY`: Your Moonshot API key (Required, or use NVIDIA).
+*   `NVIDIA_API_KEY`: NVIDIA NIM API key (Optional, processed with priority).
 *   `SMTP_*`: SMTP credentials (Optional, for email delivery).
 
 #### 3. Usage

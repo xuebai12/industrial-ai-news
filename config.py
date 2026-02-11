@@ -8,17 +8,30 @@ load_dotenv()
 
 
 # --- API Config ---
+# --- API Config ---
 MOONSHOT_API_KEY = os.getenv("MOONSHOT_API_KEY", "")
-MOONSHOT_BASE_URL = "https://api.moonshot.cn/v1"
-# Use Moonshot v1 8k or 32k for longer context if needed
-MOONSHOT_MODEL = "moonshot-v1-8k"
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
+
+# Determine which provider to use
+# Priority: NVIDIA NIM (if key exists) > Moonshot (Default)
+if NVIDIA_API_KEY:
+    KIMI_API_KEY = NVIDIA_API_KEY
+    KIMI_BASE_URL = "https://integrate.api.nvidia.com/v1"
+    KIMI_MODEL = "moonshotai/kimi-k2.5"  # NVIDIA NIM model ID
+    API_PROVIDER = "NVIDIA"
+else:
+    KIMI_API_KEY = MOONSHOT_API_KEY
+    KIMI_BASE_URL = "https://api.moonshot.cn/v1"
+    KIMI_MODEL = "moonshot-v1-8k"
+    API_PROVIDER = "Moonshot"
 
 IS_CI = os.getenv("CI", "false").lower() == "true"
 
 # Debug print for CI environment
 if os.getenv("CI"):
     print(f"[DEBUG] CI Mode: {IS_CI}")
-    print(f"[DEBUG] Moonshot API Key present: {bool(MOONSHOT_API_KEY)}")
+    print(f"[DEBUG] API Provider: {API_PROVIDER}")
+    print(f"[DEBUG] API Key present: {bool(KIMI_API_KEY)}")
     print(f"[DEBUG] SMTP Host: {os.getenv('SMTP_HOST')}")
     print(f"[DEBUG] SMTP User present: {bool(os.getenv('SMTP_USER'))}")
 
