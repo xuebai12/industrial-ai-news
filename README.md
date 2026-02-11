@@ -1,4 +1,4 @@
-# 🏭 Industrial AI & Simulation Intelligence System
+
 
 [🇨🇳 中文文档](#中文介绍) | [🇬🇧 English Documentation](#english-documentation)
 
