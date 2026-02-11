@@ -13,17 +13,30 @@ MOONSHOT_API_KEY = os.getenv("MOONSHOT_API_KEY", "")
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 
 # Determine which provider to use
-# Priority: NVIDIA NIM (if key exists) > Moonshot (Default)
-if NVIDIA_API_KEY:
+# Priority: USE_LOCAL_OLLAMA > NVIDIA NIM > Moonshot > Local Ollama (Fallback)
+USE_LOCAL_OLLAMA = os.getenv("USE_LOCAL_OLLAMA", "false").lower() == "true"
+
+if USE_LOCAL_OLLAMA:
+    KIMI_API_KEY = "ollama"
+    KIMI_BASE_URL = "http://localhost:11434/v1"
+    KIMI_MODEL = os.getenv("OLLAMA_MODEL", "kimi-k2.5:cloud")
+    API_PROVIDER = "Local_Ollama"
+elif NVIDIA_API_KEY and NVIDIA_API_KEY.startswith("nvapi-"):
     KIMI_API_KEY = NVIDIA_API_KEY
     KIMI_BASE_URL = "https://integrate.api.nvidia.com/v1"
-    KIMI_MODEL = "moonshotai/kimi-k2.5"  # NVIDIA NIM model ID
+    KIMI_MODEL = "moonshotai/kimi-k2.5"
     API_PROVIDER = "NVIDIA"
-else:
+elif MOONSHOT_API_KEY and MOONSHOT_API_KEY.startswith("sk-"):
     KIMI_API_KEY = MOONSHOT_API_KEY
     KIMI_BASE_URL = "https://api.moonshot.cn/v1"
     KIMI_MODEL = "moonshot-v1-8k"
     API_PROVIDER = "Moonshot"
+else:
+    # Fallback to Local Ollama
+    KIMI_API_KEY = "ollama"  # Ollama doesn't require a real key
+    KIMI_BASE_URL = "http://localhost:11434/v1"
+    KIMI_MODEL = os.getenv("OLLAMA_MODEL", "kimi-k2.5:cloud")
+    API_PROVIDER = "Local_Ollama"
 
 IS_CI = os.getenv("CI", "false").lower() == "true"
 

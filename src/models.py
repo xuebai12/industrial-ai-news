@@ -29,4 +29,11 @@ class AnalyzedArticle:
     source_url: str            # Original URL
     summary_zh: str            # One-sentence Chinese summary
     summary_en: str            # One-sentence English summary
+    
+    # New Dimensions (2026-02-11)
+    tool_stack: str = ""       # Identifying software tools (e.g. Siemens, AnyLogic)
+    hiring_signals: str = ""   # Hiring/Investment signals
+    interview_flip: str = ""   # "Pain Point & Solution" for interviews
+    theory_gap: str = ""       # Academic theory (DES) vs Industry practice
+    
     original: Article | None = None

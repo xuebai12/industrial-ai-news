@@ -9,9 +9,9 @@ from src.models import Article
 from config import (
     HIGH_PRIORITY_KEYWORDS,
     MEDIUM_PRIORITY_KEYWORDS,
-    MOONSHOT_API_KEY,
-    MOONSHOT_BASE_URL,
-    MOONSHOT_MODEL,
+    KIMI_API_KEY,
+    KIMI_BASE_URL,
+    KIMI_MODEL,
     RELEVANCE_THRESHOLD,
 )
 
@@ -45,12 +45,12 @@ def kimi_relevance_check(article: Article) -> bool:
     Use Kimi Cloud to confirm article relevance.
     Returns True if the article is relevant.
     """
-    if not MOONSHOT_API_KEY:
+    if not KIMI_API_KEY:
         logger.warning("  Kimi API key not set — accepting article by default")
         return True
 
     try:
-        client = OpenAI(api_key=MOONSHOT_API_KEY, base_url=MOONSHOT_BASE_URL)
+        client = OpenAI(api_key=KIMI_API_KEY, base_url=KIMI_BASE_URL)
 
         prompt = (
             f"Title: {article.title}\n"
@@ -60,7 +60,7 @@ def kimi_relevance_check(article: Article) -> bool:
         )
 
         response = client.chat.completions.create(
-            model=MOONSHOT_MODEL,
+            model=KIMI_MODEL,
             messages=[
                 {
                     "role": "system",

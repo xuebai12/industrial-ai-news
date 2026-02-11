@@ -39,6 +39,11 @@ EMAIL_TEMPLATE = Template("""\
   .tech-points { font-size: 13px; color: #666; border-left: 3px solid #2196f3; 
                  padding-left: 12px; margin: 10px 0; }
   .context { font-size: 12px; color: #888; }
+  .career-box { background: #fff3e0; border: 1px solid #ffe0b2; border-radius: 8px; 
+                padding: 12px; margin-top: 12px; font-size: 13px; color: #e65100; }
+  .career-title { font-weight: bold; margin-bottom: 5px; display: block; }
+  .career-item { margin-bottom: 4px; display: flex; align-items: baseline; }
+  .icon { margin-right: 6px; }
   .source { font-size: 13px; margin-top: 10px; }
   .source a { color: #1976d2; text-decoration: none; }
   .footer { text-align: center; padding: 20px; font-size: 12px; color: #999; }
@@ -69,6 +74,24 @@ EMAIL_TEMPLATE = Template("""\
     {% if article.german_context %}
     <div class="context">🏭 {{ article.german_context }}</div>
     {% endif %}
+    
+    <!-- New Dimensions Block -->
+    <div class="career-box">
+        <span class="career-title">🎓 学生/求职者视角 (Insights)</span>
+        {% if article.hiring_signals %}
+        <div class="career-item"><span class="icon">💼</span> <strong>招聘信号:</strong> {{ article.hiring_signals }}</div>
+        {% endif %}
+        {% if article.tool_stack %}
+        <div class="career-item"><span class="icon">🛠️</span> <strong>工具链:</strong> {{ article.tool_stack }}</div>
+        {% endif %}
+        {% if article.interview_flip %}
+        <div class="career-item"><span class="icon">💡</span> <strong>面试谈资:</strong> {{ article.interview_flip }}</div>
+        {% endif %}
+        {% if article.theory_gap %}
+        <div class="career-item"><span class="icon">📖</span> <strong>学术差异:</strong> {{ article.theory_gap }}</div>
+        {% endif %}
+    </div>
+
     <div class="source">
       Source: {{ article.source_name }} | 
       <a href="{{ article.source_url }}">Link / 原文 →</a>
@@ -112,6 +135,18 @@ def render_digest_text(articles: list[AnalyzedArticle], today: str | None = None
         lines.append(f"  🔬 核心点：{article.core_tech_points}")
         if article.german_context:
             lines.append(f"  🏭 背景：{article.german_context}")
+        
+        # New Dimensions
+        lines.append("  🎓 求职视角:")
+        if article.hiring_signals:
+            lines.append(f"    💼 招聘: {article.hiring_signals}")
+        if article.tool_stack:
+            lines.append(f"    🛠️ 工具: {article.tool_stack}")
+        if article.interview_flip:
+            lines.append(f"    💡 面试: {article.interview_flip}")
+        if article.theory_gap:
+            lines.append(f"    📖 理论: {article.theory_gap}")
+
         lines.append(f"  📎 来源：{article.source_name} | {article.source_url}")
         lines.append("")
 
@@ -180,7 +215,18 @@ def save_digest_markdown(articles: list[AnalyzedArticle],
         lines.append(f"🔬 **核心技术：** {article.core_tech_points}\n")
         if article.german_context:
             lines.append(f"🏭 **应用背景：** {article.german_context}\n")
-        lines.append(f"📎 来源：{article.source_name} | [点击查看原文]({article.source_url})\n")
+        
+        lines.append("> 🎓 **求职/学生视角 (Insights):**\n")
+        if article.hiring_signals:
+            lines.append(f"> - 💼 **招聘信号:** {article.hiring_signals}\n")
+        if article.tool_stack:
+            lines.append(f"> - 🛠️ **工具链:** {article.tool_stack}\n")
+        if article.interview_flip:
+            lines.append(f"> - 💡 **面试谈资:** {article.interview_flip}\n")
+        if article.theory_gap:
+            lines.append(f"> - 📖 **学术差异:** {article.theory_gap}\n")
+        
+        lines.append(f"\n📎 来源：{article.source_name} | [点击查看原文]({article.source_url})\n")
         lines.append("---\n")
 
     with open(filepath, "w", encoding="utf-8") as f:
