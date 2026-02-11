@@ -23,7 +23,7 @@ EMAIL_FROM = os.getenv("EMAIL_FROM", "")
 
 # --- Pipeline Config ---
 MAX_ARTICLES_PER_SOURCE = int(os.getenv("MAX_ARTICLES_PER_SOURCE", "20"))
-RELEVANCE_THRESHOLD = int(os.getenv("RELEVANCE_THRESHOLD", "2"))  # Increased threshold
+RELEVANCE_THRESHOLD = int(os.getenv("RELEVANCE_THRESHOLD", "1"))  # Reduced threshold to catch more articles
 IS_CI = os.getenv("CI", "false").lower() == "true"
 
 
