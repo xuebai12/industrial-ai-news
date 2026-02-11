@@ -1,0 +1,10 @@
+# Industrial AI & Simulation Daily Intelligence System
+
+.env
+__pycache__/
+*.pyc
+.venv/
+output/
+*.egg-info/
+dist/
+build/

@@ -1,0 +1,18 @@
+[project]
+name = "industrial-ai-intel"
+version = "0.1.0"
+description = "Daily intelligence system for Industrial AI, DES & Digital Twin"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.0",
+    "beautifulsoup4>=4.12",
+    "feedparser>=6.0",
+    "playwright>=1.40",
+    "jinja2>=3.1",
+    "python-dotenv>=1.0",
+    "aiohttp>=3.9",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-asyncio>=0.23"]
