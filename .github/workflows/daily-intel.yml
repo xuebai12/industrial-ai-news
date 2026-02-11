@@ -2,13 +2,16 @@ name: Daily Industrial AI Intelligence
 
 on:
   schedule:
-    # Run at 07:00 UTC (08:00 CET) every day
+    # Run at 07:00 UTC (08:00 CET / 15:00 CST) every day
     - cron: '0 7 * * *'
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
 
 env:
   CI: true
+  # AI Model (choose one)
+  NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
   MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+  # Email delivery
   SMTP_HOST: ${{ secrets.SMTP_HOST }}
   SMTP_PORT: ${{ secrets.SMTP_PORT }}
   SMTP_USER: ${{ secrets.SMTP_USER }}
@@ -20,7 +23,7 @@ env:
 jobs:
   daily-digest:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -39,7 +42,7 @@ jobs:
 
       - name: Run daily intelligence pipeline
         run: |
-          python main.py --output both
+          python main.py --output email --skip-dynamic --skip-llm-filter
 
       - name: Upload digest artifact
         uses: actions/upload-artifact@v4
