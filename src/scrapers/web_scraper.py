@@ -2,10 +2,11 @@
 
 import logging
 import re
-from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
 from src.models import Article
 from config import DATA_SOURCES
@@ -21,6 +22,22 @@ HEADERS = {
     ),
     "Accept-Language": "de,en;q=0.9",
 }
+
+
+def _build_session() -> requests.Session:
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        backoff_factor=0.8,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET",),
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
 
 def _clean_text(text: str, max_len: int = 500) -> str:
@@ -41,13 +58,15 @@ def _make_absolute(url: str, base_url: str) -> str:
 
 
 def scrape_generic_web(source_name: str, url: str, selector: str,
-                       lang: str, category: str, max_items: int = 20) -> list[Article]:
+                       lang: str, category: str, max_items: int = 20,
+                       session: requests.Session | None = None) -> list[Article]:
     """Generic scraper for list-based news pages."""
     logger.info(f"[WEB] Fetching {source_name}: {url}")
     articles: list[Article] = []
 
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        req = session or requests
+        resp = req.get(url, headers=HEADERS, timeout=15)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -113,18 +132,22 @@ def scrape_web_sources(max_items: int = 20) -> list[Article]:
 
     web_sources = [s for s in DATA_SOURCES if s.source_type == "web"]
 
-    for source in web_sources:
-        selector = selectors.get(source.name, default_selector)
-        
-        # Special case handling if needed, otherwise generic
-        found = scrape_generic_web(
-            source_name=source.name,
-            url=source.url,
-            selector=selector,
-            lang=source.language,
-            category=source.category,
-            max_items=max_items
-        )
-        articles.extend(found)
+    session = _build_session()
+    try:
+        for source in web_sources:
+            selector = selectors.get(source.name, default_selector)
+
+            found = scrape_generic_web(
+                source_name=source.name,
+                url=source.url,
+                selector=selector,
+                lang=source.language,
+                category=source.category,
+                max_items=max_items,
+                session=session,
+            )
+            articles.extend(found)
+    finally:
+        session.close()
 
     return articles

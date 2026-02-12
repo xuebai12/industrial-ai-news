@@ -2,9 +2,11 @@
 
 import os
 from dataclasses import dataclass
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 # --- API Config ---
@@ -40,14 +42,6 @@ else:
 
 IS_CI = os.getenv("CI", "false").lower() == "true"
 
-# Debug print for CI environment
-if os.getenv("CI"):
-    print(f"[DEBUG] CI Mode: {IS_CI}")
-    print(f"[DEBUG] API Provider: {API_PROVIDER}")
-    print(f"[DEBUG] API Key present: {bool(KIMI_API_KEY)}")
-    print(f"[DEBUG] SMTP Host: {os.getenv('SMTP_HOST')}")
-    print(f"[DEBUG] SMTP User present: {bool(os.getenv('SMTP_USER'))}")
-
 # --- Email Config ---
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 
@@ -69,6 +63,48 @@ MAX_ARTICLES_PER_SOURCE = int(_max_articles) if _max_articles else 20
 
 _relevance_threshold = os.getenv("RELEVANCE_THRESHOLD")
 RELEVANCE_THRESHOLD = int(_relevance_threshold) if _relevance_threshold else 1
+
+
+def validate_config(mode: str, mock: bool = False) -> tuple[bool, list[str]]:
+    """
+    Validate runtime config for a given output mode.
+
+    Args:
+        mode: "email", "markdown", "both", or "notion"
+        mock: True when running in mock analysis mode.
+    """
+    errors: list[str] = []
+
+    if mode in ("email", "both"):
+        if not SMTP_HOST:
+            errors.append("SMTP_HOST is required for email output")
+        if not SMTP_USER:
+            errors.append("SMTP_USER is required for email output")
+        if not SMTP_PASS:
+            errors.append("SMTP_PASS is required for email output")
+        if not EMAIL_TO:
+            errors.append("EMAIL_TO is required for email output")
+
+    if mode in ("notion", "both"):
+        if not NOTION_API_KEY:
+            errors.append("NOTION_API_KEY is required for notion output")
+        if not NOTION_DATABASE_ID:
+            errors.append("NOTION_DATABASE_ID is required for notion output")
+
+    # Only validate model provider when real analysis is enabled.
+    if not mock and not KIMI_API_KEY:
+        errors.append("Model API key is required when mock mode is disabled")
+
+    if IS_CI:
+        logger.info(
+            "[CONFIG] ci=%s provider=%s smtp_user=%s notion=%s",
+            IS_CI,
+            API_PROVIDER,
+            bool(SMTP_USER),
+            bool(NOTION_API_KEY and NOTION_DATABASE_ID),
+        )
+
+    return len(errors) == 0, errors
 
 
 # --- Data Source Definitions ---

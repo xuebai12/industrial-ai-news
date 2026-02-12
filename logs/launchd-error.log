@@ -1,0 +1,28 @@
+09:38:38 [INFO] ============================================================
+09:38:38 [INFO] 📅 Industrial AI Intelligence Pipeline — 2026-02-12
+09:38:38 [INFO] ============================================================
+09:38:38 [INFO] 
+🔍 Stage 1: Scraping data sources...
+09:38:39 [INFO] [RSS] Fetching: arXiv cs.AI (Simulation/RL) (https://rss.arxiv.org/rss/cs.AI)
+09:38:39 [WARNING] [RSS] Feed error for arXiv cs.AI (Simulation/RL): <urlopen error [Errno 8] nodename nor servname provided, or not known>
+09:38:39 [INFO] [RSS] Fetching: arXiv cs.SY (Systems) (https://rss.arxiv.org/rss/cs.SY)
+09:38:39 [WARNING] [RSS] Feed error for arXiv cs.SY (Systems): <urlopen error [Errno 8] nodename nor servname provided, or not known>
+09:38:39 [INFO] [WEB] Fetching Plattform Industrie 4.0: https://www.plattform-i40.de/
+09:38:39 [ERROR] [WEB] Failed to scrape Plattform Industrie 4.0: HTTPSConnectionPool(host='www.plattform-i40.de', port=443): Max retries exceeded with url: / (Caused by NameResolutionError("HTTPSConnection(host='www.plattform-i40.de', port=443): Failed to resolve 'www.plattform-i40.de' ([Errno 8] nodename nor servname provided, or not known)"))
+09:38:39 [INFO] [WEB] Fetching Fraunhofer IPA Press: https://www.ipa.fraunhofer.de/de/presse/presseinformationen.html
+09:38:39 [ERROR] [WEB] Failed to scrape Fraunhofer IPA Press: HTTPSConnectionPool(host='www.ipa.fraunhofer.de', port=443): Max retries exceeded with url: /de/presse/presseinformationen.html (Caused by NameResolutionError("HTTPSConnection(host='www.ipa.fraunhofer.de', port=443): Failed to resolve 'www.ipa.fraunhofer.de' ([Errno 8] nodename nor servname provided, or not known)"))
+09:38:39 [INFO] [WEB] Fetching DFKI News: https://www.dfki.de/web/news-media/presse
+09:38:39 [ERROR] [WEB] Failed to scrape DFKI News: HTTPSConnectionPool(host='www.dfki.de', port=443): Max retries exceeded with url: /web/news-media/presse (Caused by NameResolutionError("HTTPSConnection(host='www.dfki.de', port=443): Failed to resolve 'www.dfki.de' ([Errno 8] nodename nor servname provided, or not known)"))
+09:38:39 [INFO] [WEB] Fetching TUM fml (Logistics): https://www.mec.ed.tum.de/en/fml/cover-page/
+09:38:39 [ERROR] [WEB] Failed to scrape TUM fml (Logistics): HTTPSConnectionPool(host='www.mec.ed.tum.de', port=443): Max retries exceeded with url: /en/fml/cover-page/ (Caused by NameResolutionError("HTTPSConnection(host='www.mec.ed.tum.de', port=443): Failed to resolve 'www.mec.ed.tum.de' ([Errno 8] nodename nor servname provided, or not known)"))
+09:38:39 [INFO] [WEB] Fetching SimPlan Blog/News: https://www.simplan.de/en/news/
+09:38:39 [ERROR] [WEB] Failed to scrape SimPlan Blog/News: HTTPSConnectionPool(host='www.simplan.de', port=443): Max retries exceeded with url: /en/news/ (Caused by NameResolutionError("HTTPSConnection(host='www.simplan.de', port=443): Failed to resolve 'www.simplan.de' ([Errno 8] nodename nor servname provided, or not known)"))
+09:38:39 [INFO] [WEB] Fetching Siemens Digital Industries: https://www.siemens.com/global/en/products/automation.html
+09:38:39 [ERROR] [WEB] Failed to scrape Siemens Digital Industries: HTTPSConnectionPool(host='www.siemens.com', port=443): Max retries exceeded with url: /global/en/products/automation.html (Caused by NameResolutionError("HTTPSConnection(host='www.siemens.com', port=443): Failed to resolve 'www.siemens.com' ([Errno 8] nodename nor servname provided, or not known)"))
+09:38:39 [INFO] [WEB] Fetching VDI Nachrichten Tech: https://www.vdi-nachrichten.com/technik/
+09:38:39 [ERROR] [WEB] Failed to scrape VDI Nachrichten Tech: HTTPSConnectionPool(host='www.vdi-nachrichten.com', port=443): Max retries exceeded with url: /technik/ (Caused by NameResolutionError("HTTPSConnection(host='www.vdi-nachrichten.com', port=443): Failed to resolve 'www.vdi-nachrichten.com' ([Errno 8] nodename nor servname provided, or not known)"))
+09:38:39 [INFO] [WEB] Fetching de:hub Smart Systems: https://www.de-hub.de/en/
+09:38:39 [ERROR] [WEB] Failed to scrape de:hub Smart Systems: HTTPSConnectionPool(host='www.de-hub.de', port=443): Max retries exceeded with url: /en/ (Caused by NameResolutionError("HTTPSConnection(host='www.de-hub.de', port=443): Failed to resolve 'www.de-hub.de' ([Errno 8] nodename nor servname provided, or not known)"))
+09:38:39 [INFO] [SCRAPE] Skipping dynamic scrapers (--skip-dynamic)
+09:38:39 [INFO] 📊 Total scraped: 0 articles
+09:38:39 [WARNING] No articles scraped. Check data source configuration.

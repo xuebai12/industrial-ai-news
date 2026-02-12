@@ -1,0 +1,16 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.13.2
+    hooks:
+      - id: ruff-check
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.2
+    hooks:
+      - id: mypy
+        args: ["main.py", "src"]
+  - repo: https://github.com/pytest-dev/pytest
+    rev: 8.4.2
+    hooks:
+      - id: pytest
+        args: ["-q"]
+        additional_dependencies: ["pytest-asyncio>=0.23"]

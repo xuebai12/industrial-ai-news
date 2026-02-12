@@ -2,7 +2,9 @@
 
 import json
 import logging
+import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 
 from src.models import Article, AnalyzedArticle
@@ -16,6 +18,8 @@ _client: OpenAI | None = None
 # Local models need more tokens (they're verbose) and higher temp tolerance
 IS_LOCAL = API_PROVIDER == "Local_Ollama"
 MAX_TOKENS = 1500 if IS_LOCAL else 800
+REQUEST_TIMEOUT_SECONDS = float(os.getenv("KIMI_TIMEOUT_SECONDS", "45"))
+MAX_CONCURRENCY = max(1, int(os.getenv("KIMI_MAX_CONCURRENCY", "4")))
 
 
 def _get_client() -> OpenAI:
@@ -192,6 +196,7 @@ def _call_and_parse(client: OpenAI, system_prompt: str, user_content: str) -> di
             ],
             temperature=0.2,
             max_tokens=MAX_TOKENS,
+            timeout=REQUEST_TIMEOUT_SECONDS,
         )
 
         raw = response.choices[0].message.content
@@ -221,12 +226,31 @@ def analyze_articles(articles: list[Article], mock: bool = False) -> list[Analyz
     """
     logger.info(f"[{API_PROVIDER}] Starting analysis of {len(articles)} articles (Mock={mock})")
     results: list[AnalyzedArticle] = []
+    if not articles:
+        return results
 
-    for i, article in enumerate(articles, 1):
-        logger.info(f"[{API_PROVIDER}] Processing {i}/{len(articles)}: {article.title[:50]}")
-        analyzed = analyze_article(article, mock=mock)
-        if analyzed:
-            results.append(analyzed)
+    # Keep deterministic order while still using concurrent requests.
+    indexed: dict[int, AnalyzedArticle] = {}
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENCY) as executor:
+        future_map = {
+            executor.submit(analyze_article, article, mock): (idx, article)
+            for idx, article in enumerate(articles)
+        }
+        for future in as_completed(future_map):
+            idx, article = future_map[future]
+            logger.info(
+                f"[{API_PROVIDER}] Processing {idx + 1}/{len(articles)}: {article.title[:50]}"
+            )
+            try:
+                analyzed = future.result(timeout=REQUEST_TIMEOUT_SECONDS + 5)
+            except Exception as e:
+                logger.error(f"[{API_PROVIDER}] Analysis worker failed: {e}")
+                analyzed = None
+            if analyzed:
+                indexed[idx] = analyzed
+
+    for idx in sorted(indexed):
+        results.append(indexed[idx])
 
     logger.info(f"[{API_PROVIDER}] Successfully analyzed {len(results)}/{len(articles)} articles")
     return results

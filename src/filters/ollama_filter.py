@@ -16,6 +16,7 @@ from config import (
 )
 
 logger = logging.getLogger(__name__)
+_relevance_client: OpenAI | None = None
 
 
 def keyword_score(article: Article) -> int:
@@ -50,7 +51,10 @@ def kimi_relevance_check(article: Article) -> bool:
         return True
 
     try:
-        client = OpenAI(api_key=KIMI_API_KEY, base_url=KIMI_BASE_URL)
+        global _relevance_client
+        if _relevance_client is None:
+            _relevance_client = OpenAI(api_key=KIMI_API_KEY, base_url=KIMI_BASE_URL)
+        client = _relevance_client
 
         prompt = (
             f"Title: {article.title}\n"
@@ -73,6 +77,7 @@ def kimi_relevance_check(article: Article) -> bool:
             ],
             temperature=0.1,
             max_tokens=5,
+            timeout=20,
         )
 
         answer = response.choices[0].message.content.strip().upper()

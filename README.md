@@ -105,10 +105,39 @@ python main.py --output email --skip-dynamic --skip-llm-filter
 |---|---|
 | `--output markdown` | Save Markdown report only |
 | `--output email` | Save report + send email |
+| `--output both` | Send email + save markdown + push Notion |
+| `--output notion` | Push entries to Notion only |
+| `--output-dir output` | Customize output artifact directory |
+| `--strict` | Exit non-zero when any critical stage fails |
+| `--log-format json` | Emit structured JSON logs for automation |
 | `--skip-dynamic` | Skip Playwright-based scrapers (faster) |
 | `--skip-llm-filter` | Use keyword filtering only (no LLM cost) |
 | `--dry-run` | Scrape & filter only, no AI analysis |
 | `--mock` | Generate mock data (no API needed) |
+
+## Run Artifacts
+
+Each run writes machine-readable diagnostics into `output/` (or `--output-dir`):
+
+- `run-summary-YYYY-MM-DD.json`: counts, stage status, and delivery outcomes
+- `error-YYYY-MM-DD.json`: structured failures (only when run is not successful)
+- `digest-YYYY-MM-DD.md`: markdown digest (when `--output markdown|both`)
+
+## Reliability Notes
+
+- Config validation now happens before scraping (SMTP/Notion requirements checked by output mode).
+- URL deduplication is applied across scraped sources and Notion push operations.
+- Notion failures are categorized (`AUTH`, `SCHEMA`, `RATE_LIMIT`, `API`) for clearer recovery actions.
+
+## Quality Gates
+
+The workflow now enforces:
+
+- `ruff check .`
+- `mypy main.py src`
+- `pytest -q`
+
+Runbook: `docs/runbook.md`
 
 ## Architecture
 
@@ -150,6 +179,3 @@ graph LR
 ```
 
 **Cloud (GitHub Actions):** Runs daily at 08:00 CET — requires cloud API key.
-
-## License
-MIT
