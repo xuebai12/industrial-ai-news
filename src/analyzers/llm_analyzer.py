@@ -18,12 +18,11 @@ logger = logging.getLogger(__name__)
 # Initialize client (OpenAI-compatible)
 _client: OpenAI | None = None
 
-# Local models need more tokens (they're verbose) and higher temp tolerance
-# 本地模型通常更啰嗦，需要更多 token 和更高的容错率
+# Local models need more tokens, but should run with low randomness for stable JSON.
 IS_LOCAL = API_PROVIDER == "Local_Ollama"
-MAX_TOKENS = 1500 if IS_LOCAL else 800
+MAX_TOKENS = int(os.getenv("KIMI_MAX_TOKENS", "2600" if IS_LOCAL else "800"))
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("KIMI_TIMEOUT_SECONDS", "45")) # Kept env var name for compatibility or should query user? Let's use generic default
-MAX_CONCURRENCY = max(1, int(os.getenv("KIMI_MAX_CONCURRENCY", "4"))) 
+MAX_CONCURRENCY = max(1, int(os.getenv("KIMI_MAX_CONCURRENCY", "1" if IS_LOCAL else "4")))
 
 def _get_client() -> OpenAI:
     """Lazy-init API client (延迟初始化 API 客户端)."""
@@ -51,19 +50,42 @@ def _extract_json(text: str) -> dict | None:
 
     raw = text.strip()
 
+    def _try_parse(candidate: str) -> dict | None:
+        s = (candidate or "").strip()
+        if not s:
+            return None
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError:
+            # Common repairs for local model outputs
+            repaired = s.replace("“", '"').replace("”", '"').replace("’", "'")
+            repaired = repaired.replace("\ufeff", "")
+            repaired = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F]', "", repaired)
+            repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
+            try:
+                return json.loads(repaired)
+            except json.JSONDecodeError:
+                return None
+
     # Strategy 1: Try direct parse (ideal case)
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        pass
+    parsed = _try_parse(raw)
+    if parsed is not None:
+        return parsed
 
     # Strategy 2: Extract from markdown ```json ... ``` blocks
     md_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw, re.DOTALL)
     if md_match:
-        try:
-            return json.loads(md_match.group(1).strip())
-        except json.JSONDecodeError:
-            pass
+        parsed = _try_parse(md_match.group(1).strip())
+        if parsed is not None:
+            return parsed
+
+    # Strategy 2b: Unclosed markdown fence (common in truncated local outputs)
+    md_unclosed = re.search(r'```(?:json)?\s*\n?(.*)$', raw, re.DOTALL)
+    if md_unclosed:
+        candidate = md_unclosed.group(1).replace("```", "").strip()
+        parsed = _try_parse(candidate)
+        if parsed is not None:
+            return parsed
 
     # Strategy 3: Find the first { ... } block using brace matching
     brace_start = raw.find('{')
@@ -76,18 +98,24 @@ def _extract_json(text: str) -> dict | None:
                 depth -= 1
                 if depth == 0:
                     candidate = raw[brace_start:i + 1]
-                    try:
-                        return json.loads(candidate)
-                    except json.JSONDecodeError:
-                        # Try fixing common issues: trailing commas, single quotes
-                        fixed = candidate.replace("'", '"')
-                        fixed = re.sub(r',\s*}', '}', fixed)
-                        fixed = re.sub(r',\s*]', ']', fixed)
-                        try:
-                            return json.loads(fixed)
-                        except json.JSONDecodeError:
-                            pass
+                    parsed = _try_parse(candidate)
+                    if parsed is not None:
+                        return parsed
                     break
+
+        # Strategy 3b: If text is truncated and only missing closing braces, try autoclose
+        tail = raw[brace_start:]
+        depth = 0
+        for ch in tail:
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+        if depth > 0:
+            repaired = tail + ("}" * depth)
+            parsed = _try_parse(repaired)
+            if parsed is not None:
+                return parsed
 
     return None
 
@@ -181,6 +209,23 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
         )
         data = _call_and_parse(client, simple_prompt, user_content)
 
+    # --- Attempt 3: Retry with strict minimal schema + shorter input (尝试 3: 最小化输入重试) ---
+    if data is None and IS_LOCAL:
+        logger.warning(f"[{API_PROVIDER}] Retry with minimal strict schema for '{article.title[:40]}'")
+        minimal_user_content = (
+            f"title: {article.title[:180]}\n"
+            f"source: {article.source}\n"
+            f"url: {article.url}\n"
+            f"snippet: {article.content_snippet[:350]}\n"
+        )
+        minimal_prompt = (
+            'Return ONLY valid JSON. No markdown. No explanation. '
+            'Required keys: category_tag,title_zh,title_en,title_de,summary_zh,summary_en,summary_de,'
+            'core_tech_points,german_context,tool_stack,simple_explanation,technician_analysis_de. '
+            'Use empty string if unknown.'
+        )
+        data = _call_and_parse(client, minimal_prompt, minimal_user_content)
+
     if data is None:
         logger.error(f"[{API_PROVIDER}] All parse attempts failed for '{article.title[:40]}'")
         # Return fallback object (返回兜底对象，避免流程中断)
@@ -230,15 +275,21 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
 def _call_and_parse(client: OpenAI, system_prompt: str, user_content: str) -> dict | None:
     """Call the model and attempt to parse JSON from the response."""
     try:
-        response = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
+        request_kwargs = {
+            "model": LLM_MODEL,
+            "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            temperature=0.2,
-            max_tokens=MAX_TOKENS,
-            timeout=REQUEST_TIMEOUT_SECONDS,
+            "temperature": 0.0 if IS_LOCAL else 0.2,
+            "max_tokens": MAX_TOKENS,
+            "timeout": REQUEST_TIMEOUT_SECONDS,
+        }
+        if IS_LOCAL:
+            request_kwargs["extra_body"] = {"format": "json"}
+
+        response = client.chat.completions.create(
+            **request_kwargs
         )
 
         raw = response.choices[0].message.content
