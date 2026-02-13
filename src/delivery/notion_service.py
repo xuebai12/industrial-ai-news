@@ -28,6 +28,7 @@ class NotionDeliveryService:
     def __init__(self, client: Client, database_id: str):
         self.client = client
         self.database_id = database_id
+        self._database_properties: dict[str, dict] | None = None
 
     def push_articles(self, articles: list[AnalyzedArticle], today: str) -> int:
         """
@@ -122,6 +123,12 @@ class NotionDeliveryService:
         """Query database for all existing source URLs (for dedup)."""
         urls: set[str] = set()
         try:
+            schema = self.get_database_properties()
+            url_property = self.find_url_property_name(schema)
+            if not url_property:
+                logger.warning("[NOTION] No URL property found in database schema, skip URL dedupe")
+                return urls
+
             has_more = True
             start_cursor = None
             seen_cursors: set[str | None] = set()
@@ -131,7 +138,7 @@ class NotionDeliveryService:
                     break
                 seen_cursors.add(start_cursor)
 
-                body = {"page_size": 100, "filter_properties": ["原文链接"]}
+                body = {"page_size": 100}
                 if start_cursor:
                     body["start_cursor"] = start_cursor
 
@@ -142,7 +149,7 @@ class NotionDeliveryService:
                 )
                 for page in resp.get("results", []):
                     props = page.get("properties", {})
-                    url_prop = props.get("原文链接", {})
+                    url_prop = props.get(url_property, {})
                     url = url_prop.get("url")
                     if url:
                         urls.add(self.normalize_url(url))
@@ -155,8 +162,12 @@ class NotionDeliveryService:
 
     def create_page(self, article: AnalyzedArticle, today: str) -> None:
         """Create a single Notion database entry with properties and page body."""
-        properties = {
-            "标题": {
+        schema = self.get_database_properties()
+        title_property = self.find_title_property_name(schema) or "标题"
+        url_property = self.find_url_property_name(schema) or "原文链接"
+
+        all_properties = {
+            title_property: {
                 "title": [{"text": {"content": article.title_zh or article.title_en or "Untitled"}}]
             },
             "类别": {
@@ -171,7 +182,7 @@ class NotionDeliveryService:
             "来源/机构": {
                 "select": {"name": article.source_name or "Unknown"}
             },
-            "原文链接": {
+            url_property: {
                 "url": article.source_url or None
             },
             "日期": {
@@ -180,19 +191,8 @@ class NotionDeliveryService:
             "工具链": {
                 "rich_text": [{"text": {"content": (article.tool_stack or "")[:2000]}}]
             },
-            "招聘信号": {
-                "rich_text": [{"text": {"content": (article.hiring_signals or "")[:2000]}}]
-            },
-            "面试谈资": {
-                "rich_text": [{"text": {"content": (article.interview_flip or "")[:2000]}}]
-            },
-            "学术差异": {
-                "rich_text": [{"text": {"content": (article.theory_gap or "")[:2000]}}]
-            },
-            "职业关联度": {
-                "select": {"name": self.career_relevance(article)}
-            },
         }
+        properties = self.filter_existing_properties(all_properties, schema)
 
         children = self.build_page_body(article)
 
@@ -204,6 +204,51 @@ class NotionDeliveryService:
             )
         except Exception as e:
             raise NotionDeliveryError(self.classify_error(e), str(e)) from e
+
+    def get_database_properties(self) -> dict[str, dict]:
+        """Retrieve and cache database schema properties."""
+        if self._database_properties is not None:
+            return self._database_properties
+
+        db = self.client.databases.retrieve(database_id=self.database_id)
+        self._database_properties = db.get("properties", {}) or {}
+        return self._database_properties
+
+    @staticmethod
+    def find_title_property_name(schema: dict[str, dict]) -> str | None:
+        """Find title property name from schema."""
+        if "标题" in schema and schema.get("标题", {}).get("type") == "title":
+            return "标题"
+        for name, meta in schema.items():
+            if meta.get("type") == "title":
+                return name
+        return None
+
+    @staticmethod
+    def find_url_property_name(schema: dict[str, dict]) -> str | None:
+        """Find source URL property name from schema."""
+        preferred = ("原文链接", "Source URL", "source_url", "URL", "url")
+        for name in preferred:
+            if schema.get(name, {}).get("type") == "url":
+                return name
+        for name, meta in schema.items():
+            if meta.get("type") == "url":
+                return name
+        return None
+
+    @staticmethod
+    def filter_existing_properties(
+        all_properties: dict[str, dict], schema: dict[str, dict]
+    ) -> dict[str, dict]:
+        """Keep only properties that exist in database schema."""
+        if not schema:
+            return all_properties
+
+        known = {k: v for k, v in all_properties.items() if k in schema}
+        missing = [k for k in all_properties if k not in schema]
+        if missing:
+            logger.warning("[NOTION] Missing properties in DB schema, skipped: %s", ", ".join(missing))
+        return known
 
     def parse_multi_select_tags(self, text: str) -> list[dict]:
         """Parse comma/semicolon separated text into Notion multi-select tags."""
@@ -217,21 +262,6 @@ class NotionDeliveryService:
             if tag and len(tag) < 100:
                 tags.append({"name": tag})
         return tags[:10]
-
-    def career_relevance(self, article: AnalyzedArticle) -> str:
-        """Estimate career relevance based on content richness."""
-        signals = 0
-        if article.hiring_signals and len(article.hiring_signals) > 10:
-            signals += 2
-        if article.interview_flip and len(article.interview_flip) > 10:
-            signals += 2
-        if article.tool_stack and len(article.tool_stack) > 5:
-            signals += 1
-        if signals >= 3:
-            return "High"
-        if signals >= 1:
-            return "Medium"
-        return "Low"
 
     def build_page_body(self, article: AnalyzedArticle) -> list[dict]:
         """Build Notion page content blocks for the article."""
@@ -257,17 +287,13 @@ class NotionDeliveryService:
             blocks.append(self._heading3("🛠️ 工具链"))
             blocks.append(self._paragraph(article.tool_stack))
 
-        if article.hiring_signals:
-            blocks.append(self._heading3("💼 招聘信号"))
-            blocks.append(self._paragraph(article.hiring_signals))
+        if article.simple_explanation:
+            blocks.append(self._heading3("💡 通俗解读 (Student View)"))
+            blocks.append(self._paragraph(article.simple_explanation))
 
-        if article.interview_flip:
-            blocks.append(self._heading3("💡 面试谈资"))
-            blocks.append(self._paragraph(article.interview_flip))
-
-        if article.theory_gap:
-            blocks.append(self._heading3("📖 学术 vs 工业"))
-            blocks.append(self._paragraph(article.theory_gap))
+        if article.technician_analysis_de:
+            blocks.append(self._heading3("🔧 Technician Analysis (DE)"))
+            blocks.append(self._paragraph(article.technician_analysis_de))
 
         blocks.append(self._divider())
         if article.source_url:

@@ -1,4 +1,8 @@
 """RSS feed scraper for structured news sources."""
+"""
+RSS 订阅源抓取器 (RSS Feed Scraper)
+用于抓取结构化的 RSS/Atom 新闻源。
+"""
 
 import logging
 from datetime import datetime
@@ -12,7 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 def parse_date(entry: dict) -> Optional[datetime]:
-    """Parse date from RSS entry."""
+    """
+    从 RSS 条目中解析日期 (Parse date from RSS entry).
+    尝试读取 'published_parsed' 或 'updated_parsed' 字段。
+    """
     for field in ("published_parsed", "updated_parsed"):
         parsed = entry.get(field)
         if parsed:
@@ -24,7 +31,10 @@ def parse_date(entry: dict) -> Optional[datetime]:
 
 
 def get_content_snippet(entry: dict, max_len: int = 500) -> str:
-    """Extract the best available content snippet from an RSS entry."""
+    """
+    获取内容摘要 (Extract content snippet).
+    优先顺序: content > summary > description
+    """
     # Try content field first (usually the fullest)
     if "content" in entry and entry["content"]:
         text = entry["content"][0].get("value", "")
@@ -35,7 +45,7 @@ def get_content_snippet(entry: dict, max_len: int = 500) -> str:
     else:
         text = ""
 
-    # Strip HTML tags simply
+    # Strip HTML tags simply (简单去除 HTML 标签)
     import re
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -45,14 +55,17 @@ def get_content_snippet(entry: dict, max_len: int = 500) -> str:
 def scrape_rss(name: str, url: str, language: str, category: str,
                max_items: int = 20) -> list[Article]:
     """
-    Fetch and parse an RSS feed, returning a list of Article objects.
-
+    抓取并解析 RSS 源 (Fetch and parse RSS feed).
+    
     Args:
-        name: Human-readable source name
-        url: RSS feed URL
-        language: Source language code (de/en/zh)
-        category: Article category tag
-        max_items: Maximum number of items to return
+        name: 数据源名称 (Source Name)
+        url: RSS 地址
+        language: 语言代码 (de/en/zh)
+        category: 类别标签
+        max_items: 最大条目数
+        
+    Returns:
+        list[Article]: 解析后的文章列表
     """
     logger.info(f"[RSS] Fetching: {name} ({url})")
     articles: list[Article] = []

@@ -3,9 +3,13 @@ import os
 import logging
 from notion_client import Client
 
+from dotenv import load_dotenv
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("setup_notion")
+
+load_dotenv()
 
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID")
@@ -37,21 +41,20 @@ def setup_database():
         "原文链接": {"url": {}},
         "日期": {"date": {}},
         "工具链": {"rich_text": {}},
-        "招聘信号": {"rich_text": {}},
-        "面试谈资": {"rich_text": {}},
-        "学术差异": {"rich_text": {}},
-        "职业关联度": {"select": {
-            "options": [
-                {"name": "High", "color": "green"},
-                {"name": "Medium", "color": "yellow"},
-                {"name": "Low", "color": "gray"}
+        "通俗解读": {"rich_text": {}},
+        "Persona Match": {"multi_select": {
+             "options": [
+                {"name": "student", "color": "blue"},
+                {"name": "technician", "color": "orange"}
             ]
         }},
     }
 
     try:
-        client.databases.update(database_id=NOTION_DATABASE_ID, properties=properties)
+        resp = client.databases.update(database_id=NOTION_DATABASE_ID, properties=properties)
         logger.info("✅ Database schema updated successfully!")
+        import json
+        logger.info(f"Update Response Sample: {json.dumps(list(resp.get('properties', {}).keys()))}")
     except Exception as e:
         logger.error(f"❌ Failed to update schema: {e}")
 

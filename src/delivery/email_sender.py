@@ -1,4 +1,8 @@
 """Email delivery module using SMTP."""
+"""
+邮件交付模块 (Email Delivery Module)
+使用 SMTP 协议发送 HTML 或纯文本格式的日报。
+"""
 
 import logging
 import smtplib
@@ -14,7 +18,34 @@ from config import SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_TO, EMAIL_F
 logger = logging.getLogger(__name__)
 
 
+# i18n Labels
+I18N_LABELS = {
+    "zh": {
+        "title": "📅 工业 AI 每日摘要 (Industrial AI Daily)",
+        "stats": "📊 今日共筛选出 <strong>{{ count }}</strong> 条相关情报",
+        "summary_label": "摘要：",
+        "tech_points_label": "🔬 核心技术：",
+        "context_label": "🏭 背景：",
+        "source_label": "来源 / Source:",
+        "link_label": "Link / 原文 →",
+        "simple_title": "💡 通俗解读 (Student View)",
+        "footer": "Industrial AI Intelligence System",
+    },
+    "de": {
+        "title": "📅 Industrial AI Tageszusammenfassung",
+        "stats": "📊 Heute wurden <strong>{{ count }}</strong> relevante Berichte ausgewählt",
+        "summary_label": "Zusammenfassung:",
+        "tech_points_label": "🔬 Kerntechnologie:",
+        "context_label": "🏭 Hintergrund:",
+        "source_label": "Quelle / Source:",
+        "link_label": "Originalartikel →",
+        "simple_title": "💡 Einfache Erklärung",
+        "footer": "Industrial AI Intelligence System (DE)",
+    }
+}
+
 # Jinja2 HTML email template
+# 定义邮件 HTML 模板
 EMAIL_TEMPLATE = Template("""\
 <!DOCTYPE html>
 <html>
@@ -39,10 +70,10 @@ EMAIL_TEMPLATE = Template("""\
   .tech-points { font-size: 13px; color: #666; border-left: 3px solid #2196f3; 
                  padding-left: 12px; margin: 10px 0; }
   .context { font-size: 12px; color: #888; }
-  .career-box { background: #fff3e0; border: 1px solid #ffe0b2; border-radius: 8px; 
-                padding: 12px; margin-top: 12px; font-size: 13px; color: #e65100; }
-  .career-title { font-weight: bold; margin-bottom: 5px; display: block; }
-  .career-item { margin-bottom: 4px; display: flex; align-items: baseline; }
+  .simple-box { background: #e8f5e9; border: 1px solid #c8e6c9; border-radius: 8px; 
+                padding: 12px; margin-top: 12px; font-size: 13px; color: #2e7d32; }
+  .simple-title { font-weight: bold; margin-bottom: 5px; display: block; color: #1b5e20; }
+  .tool-item { margin-top: 8px; font-size: 12px; color: #666; display: flex; align-items: center; }
   .icon { margin-right: 6px; }
   .source { font-size: 13px; margin-top: 10px; }
   .source a { color: #1976d2; text-decoration: none; }
@@ -53,69 +84,92 @@ EMAIL_TEMPLATE = Template("""\
 </head>
 <body>
   <div class="header">
-    <h1>📅 工业 AI 每日摘要 (Industrial AI Daily)</h1>
+    <h1>{{ labels.title }}</h1>
     <div class="date">{{ today }} | Industrial AI & Simulation Intelligence</div>
   </div>
 
   <div class="stats">
-    📊 今日共筛选出 <strong>{{ articles|length }}</strong> 条相关情报
+    {{ labels.stats | replace('{{ count }}', articles|length|string) }}
   </div>
 
   {% for article in articles %}
   <div class="article">
     <span class="category">{{ article.category_tag }}</span>
-    <h2>{{ article.title_zh }}</h2>
-    <div class="english-title">{{ article.title_en }}</div>
-    <div class="summary"><strong>摘要：</strong>{{ article.summary_zh }}</div>
-    {% if article.summary_en %}
+    
+    <!-- Title: German for DE profile, Chinese for ZH profile -->
+    {% if profile.language == 'de' %}
+        <h2>{{ article.title_de or article.title_en }}</h2>
+        <div class="english-title">{{ article.title_en }}</div>
+    {% else %}
+        <h2>{{ article.title_zh }}</h2>
+        <div class="english-title">{{ article.title_en }}</div>
+    {% endif %}
+
+    <div class="summary"><strong>{{ labels.summary_label }}</strong>
+        {% if profile.language == 'de' %}
+            {{ article.summary_de or article.summary_en }}
+        {% else %}
+            {{ article.summary_zh }}
+        {% endif %}
+    </div>
+    
+    {% if article.summary_en and profile.language != 'en' %}
     <div class="english-summary">{{ article.summary_en }}</div>
     {% endif %}
-    <div class="tech-points">🔬 {{ article.core_tech_points }}</div>
+    
+    <div class="tech-points">{{ labels.tech_points_label }} {{ article.core_tech_points }}</div>
+    
     {% if article.german_context %}
-    <div class="context">🏭 {{ article.german_context }}</div>
+    <div class="context">{{ labels.context_label }} {{ article.german_context }}</div>
     {% endif %}
     
     <!-- New Dimensions Block -->
-    <div class="career-box">
-        <span class="career-title">🎓 学生/求职者视角 (Insights)</span>
-        {% if article.hiring_signals %}
-        <div class="career-item"><span class="icon">💼</span> <strong>招聘信号:</strong> {{ article.hiring_signals }}</div>
+    <div class="simple-box">
+        {% if profile.persona == 'technician' %}
+            <span class="simple-title">🔧 Technician Analysis (DE)</span>
+            {{ article.technician_analysis_de }}
+        {% else %}
+            <span class="simple-title">{{ labels.simple_title }}</span>
+            {{ article.simple_explanation }}
         {% endif %}
+        
         {% if article.tool_stack %}
-        <div class="career-item"><span class="icon">🛠️</span> <strong>工具链:</strong> {{ article.tool_stack }}</div>
-        {% endif %}
-        {% if article.interview_flip %}
-        <div class="career-item"><span class="icon">💡</span> <strong>面试谈资:</strong> {{ article.interview_flip }}</div>
-        {% endif %}
-        {% if article.theory_gap %}
-        <div class="career-item"><span class="icon">📖</span> <strong>学术差异:</strong> {{ article.theory_gap }}</div>
+        <div class="tool-item">
+            <span class="icon">🛠️</span> <strong>Tool Stack:</strong>&nbsp;{{ article.tool_stack }}
+        </div>
         {% endif %}
     </div>
 
     <div class="source">
-      Source: {{ article.source_name }} | 
-      <a href="{{ article.source_url }}">Link / 原文 →</a>
+      {{ labels.source_label }} {{ article.source_name }} | 
+      <a href="{{ article.source_url }}">{{ labels.link_label }}</a>
     </div>
   </div>
   {% endfor %}
 
   <div class="footer">
-    Industrial AI Intelligence System · Powered by Moonshot AI (Kimi)
+    {{ labels.footer }}
   </div>
 </body>
 </html>
 """)
 
 
-def render_digest(articles: list[AnalyzedArticle], today: str | None = None) -> str:
-    """Render the daily digest as HTML."""
+def render_digest(articles: list[AnalyzedArticle], today: str | None = None, profile: object | None = None) -> str:
+    """Render the daily digest as HTML (渲染 HTML 摘要)."""
     if today is None:
         today = date.today().strftime("%Y-%m-%d")
-    return EMAIL_TEMPLATE.render(today=today, articles=articles)
+    
+    # Default to ZH if no profile
+    lang = getattr(profile, "language", "zh") if profile else "zh"
+    labels = I18N_LABELS.get(lang, I18N_LABELS["zh"])
+
+    return EMAIL_TEMPLATE.render(today=today, articles=articles, profile=profile, labels=labels)
 
 
 def render_digest_text(articles: list[AnalyzedArticle], today: str | None = None) -> str:
-    """Render the daily digest as plain text (for --dry-run)."""
+    """Render the daily digest as plain text (渲染纯文本摘要 - 用于 dry-run 或邮件备选部分)."""
+    # NOTE: Keep text version generic/simple for now, or update if user requests text-only format too.
     if today is None:
         today = date.today().strftime("%Y-%m-%d")
 
@@ -137,15 +191,11 @@ def render_digest_text(articles: list[AnalyzedArticle], today: str | None = None
             lines.append(f"  🏭 背景：{article.german_context}")
         
         # New Dimensions
-        lines.append("  🎓 求职视角:")
-        if article.hiring_signals:
-            lines.append(f"    💼 招聘: {article.hiring_signals}")
+        lines.append(f"  💡 通俗解读: {article.simple_explanation}")
+        if article.technician_analysis_de:
+            lines.append(f"  🔧 Techniker: {article.technician_analysis_de}")
         if article.tool_stack:
-            lines.append(f"    🛠️ 工具: {article.tool_stack}")
-        if article.interview_flip:
-            lines.append(f"    💡 面试: {article.interview_flip}")
-        if article.theory_gap:
-            lines.append(f"    📖 理论: {article.theory_gap}")
+            lines.append(f"  🛠️ 涉及工具: {article.tool_stack}")
 
         lines.append(f"  📎 来源：{article.source_name} | {article.source_url}")
         lines.append("")
@@ -153,8 +203,8 @@ def render_digest_text(articles: list[AnalyzedArticle], today: str | None = None
     return "\n".join(lines)
 
 
-def send_email(articles: list[AnalyzedArticle], today: str | None = None) -> bool:
-    """Send the daily digest email via SMTP."""
+def send_email(articles: list[AnalyzedArticle], today: str | None = None, profile: object | None = None) -> bool:
+    """Send the daily digest email via SMTP (发送邮件)."""
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, EMAIL_TO]):
         logger.warning("[EMAIL] SMTP not configured, skipping email delivery")
         return False
@@ -162,24 +212,28 @@ def send_email(articles: list[AnalyzedArticle], today: str | None = None) -> boo
     if today is None:
         today = date.today().strftime("%Y-%m-%d")
 
-    html_content = render_digest(articles, today)
+    html_content = render_digest(articles, today, profile)
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"📅 {today} Industrial AI Digest ({len(articles)})"
+    subject_prefix = f"[{profile.name}] " if profile else ""
+    msg["Subject"] = f"{subject_prefix}📅 {today} Industrial AI Digest ({len(articles)})"
     msg["From"] = EMAIL_FROM or SMTP_USER
-    msg["To"] = EMAIL_TO
+    
+    # Use profile email if available, else default EMAIL_TO
+    recipient = profile.email if profile and hasattr(profile, 'email') else EMAIL_TO
+    msg["To"] = recipient
 
     # Attach plain text and HTML versions
-    text_content = render_digest_text(articles, today)
+    text_content = render_digest_text(articles, today) # Text version remains generic for now
     msg.attach(MIMEText(text_content, "plain", "utf-8"))
     msg.attach(MIMEText(html_content, "html", "utf-8"))
 
     try:
-        logger.info(f"[EMAIL] Sending digest to {EMAIL_TO}")
+        logger.info(f"[EMAIL] Sending digest to {recipient} (Profile: {profile.name if profile else 'Default'})")
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
             server.starttls()
             server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(msg["From"], EMAIL_TO.split(","), msg.as_string())
+            server.sendmail(msg["From"], recipient.split(","), msg.as_string())
 
         logger.info("[EMAIL] ✅ Digest sent successfully")
         return True
@@ -192,7 +246,7 @@ def send_email(articles: list[AnalyzedArticle], today: str | None = None) -> boo
 def save_digest_markdown(articles: list[AnalyzedArticle],
                          output_dir: str = "output",
                          today: str | None = None) -> str:
-    """Save digest as a Markdown file (alternative to email)."""
+    """Save digest as a Markdown file (生成 Markdown 文件 - 邮件的替代方案)."""
     import os
     if today is None:
         today = date.today().strftime("%Y-%m-%d")
@@ -216,15 +270,9 @@ def save_digest_markdown(articles: list[AnalyzedArticle],
         if article.german_context:
             lines.append(f"🏭 **应用背景：** {article.german_context}\n")
         
-        lines.append("> 🎓 **求职/学生视角 (Insights):**\n")
-        if article.hiring_signals:
-            lines.append(f"> - 💼 **招聘信号:** {article.hiring_signals}\n")
+        lines.append(f"> 💡 **通俗解读:** {article.simple_explanation}\n")
         if article.tool_stack:
-            lines.append(f"> - 🛠️ **工具链:** {article.tool_stack}\n")
-        if article.interview_flip:
-            lines.append(f"> - 💡 **面试谈资:** {article.interview_flip}\n")
-        if article.theory_gap:
-            lines.append(f"> - 📖 **学术差异:** {article.theory_gap}\n")
+            lines.append(f"> - 🛠️ **涉及工具:** {article.tool_stack}\n")
         
         lines.append(f"\n📎 来源：{article.source_name} | [点击查看原文]({article.source_url})\n")
         lines.append("---\n")

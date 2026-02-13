@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Main orchestrator: Scrape -> Filter -> Analyze -> Deliver."""
+"""主流程控制器: 抓取 -> 过滤 -> 分析 -> 交付 (Scrape -> Filter -> Analyze -> Deliver)."""
 
 from __future__ import annotations
 
@@ -14,13 +14,16 @@ from dataclasses import asdict, dataclass, field
 from datetime import date
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from config import DATA_SOURCES, validate_config
+from config import DATA_SOURCES, RECIPIENT_PROFILES, validate_config
 
 logger = logging.getLogger(__name__)
 
 
 class JsonFormatter(logging.Formatter):
-    """Simple JSON log formatter for machine-readable pipeline logs."""
+    """
+    简单的 JSON 日志格式化器 (Simple JSON Log Formatter)
+    用于生成机器可读的流水线日志，便于后续分析或监控。
+    """
 
     def format(self, record: logging.LogRecord) -> str:
         payload = {
@@ -38,14 +41,22 @@ class JsonFormatter(logging.Formatter):
 
 @dataclass
 class StageFailure:
-    stage: str
-    error_type: str
-    message: str
-    source: str = ""
+    """
+    阶段失败记录 (Stage Failure Record)
+    记录流水线特定阶段的错误信息。
+    """
+    stage: str          # 发生错误的阶段 (e.g. "scrape", "analyze")
+    error_type: str     # 错误类型 (e.g. "TIMEOUT", "API_ERROR")
+    message: str        # 错误详情
+    source: str = ""    # 相关源名称 (optional)
 
 
 @dataclass
 class PipelineResult:
+    """
+    流水线执行结果数据类 (Pipeline Result Data Class)
+    用于统计和报告整个流水线的执行情况。
+    """
     run_id: str
     date: str
     strict: bool
@@ -53,17 +64,18 @@ class PipelineResult:
     success: bool = False
     exit_reason: str = ""
     duration_seconds: float = 0.0
-    scraped_count: int = 0
-    deduped_count: int = 0
-    relevant_count: int = 0
-    analyzed_count: int = 0
-    email_sent: bool = False
-    markdown_path: str = ""
-    notion_pushed: int = 0
-    failures: list[StageFailure] = field(default_factory=list)
+    scraped_count: int = 0      # 抓取总数
+    deduped_count: int = 0      # 去重后数量
+    relevant_count: int = 0     # 相关性筛选后数量
+    analyzed_count: int = 0     # 分析完成数量
+    email_sent: bool = False    # 邮件是否发送成功
+    markdown_path: str = ""     # Markdown 报告路径
+    notion_pushed: int = 0      # 推送到 Notion 的数量
+    failures: list[StageFailure] = field(default_factory=list)  # 失败列表
 
 
 def configure_logging(log_format: str) -> None:
+    """配置日志系统 (Configure Logging)"""
     handler = logging.StreamHandler()
     if log_format == "json":
         handler.setFormatter(JsonFormatter(datefmt="%Y-%m-%dT%H:%M:%S"))
@@ -81,61 +93,63 @@ def configure_logging(log_format: str) -> None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """解析命令行参数 (Parse Command Line Arguments)"""
     parser = argparse.ArgumentParser(
         description="Industrial AI & Simulation Daily Intelligence System"
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print digest to stdout without sending email",
+        help="仅打印结果到控制台，不发送邮件 (Print digest to stdout without sending email)",
     )
     parser.add_argument(
         "--output",
         choices=["email", "markdown", "both", "notion"],
         default="email",
-        help="Output format: email, markdown, both, or notion",
+        help="输出格式: email, markdown, both, 或 notion",
     )
     parser.add_argument(
         "--output-dir",
         default="output",
-        help="Output directory for artifacts and diagnostics (default: output)",
+        help="产物输出目录 (default: output)",
     )
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="Fail run (non-zero exit) on any critical stage error",
+        help="严格模式：遇到任何错误都返回非零退出码 (Fail run on any critical stage error)",
     )
     parser.add_argument(
         "--log-format",
         choices=["text", "json"],
         default="text",
-        help="Logging format (text|json)",
+        help="日志格式 (text|json)",
     )
     parser.add_argument(
         "--skip-dynamic",
         action="store_true",
-        help="Skip Playwright-based dynamic scrapers",
+        help="跳过 Playwright 动态抓取 (Skip Playwright-based dynamic scrapers)",
     )
     parser.add_argument(
         "--skip-llm-filter",
         action="store_true",
-        help="Skip Kimi Cloud LLM validation (keyword-only filtering)",
+        help="跳过 LLM 云端校验，仅使用关键词过滤 (Skip LLM Cloud validation)",
     )
     parser.add_argument(
         "--max-articles",
         type=int,
         default=20,
-        help="Max articles per source (default: 20)",
+        help="每个源最大抓取文章数 (Default: 20)",
     )
     parser.add_argument(
         "--mock",
         action="store_true",
-        help="Use mock data for Kimi analysis (simulated response)",
+        help="使用模拟数据进行 LLM 分析 (Use mock data for LLM analysis)",
     )
     return parser.parse_args(argv)
 
 
 def _normalize_url(url: str) -> str:
+    """标准化 URL 以进行去重 (Normalize URL for deduplication)"""
     if not url:
         return ""
     parsed = urlparse(url.strip())
@@ -159,6 +173,7 @@ def _normalize_url(url: str) -> str:
 
 
 def _dedupe_articles(articles: list) -> list:
+    """基于 URL 或 (来源+标题) 对文章进行去重 (Deduplicate articles)"""
     seen: set[str] = set()
     deduped: list = []
     for article in articles:
@@ -186,6 +201,7 @@ def _write_json(path: str, data: dict) -> None:
 
 
 def _emit_summary(result: PipelineResult, output_dir: str) -> None:
+    """输出运行摘要统计 (Emit Run Summary)"""
     summary_path = os.path.join(output_dir, f"run-summary-{result.date}.json")
     _write_json(summary_path, asdict(result))
     logger.info("[SUMMARY] Wrote run summary: %s", summary_path)
@@ -205,6 +221,17 @@ def _emit_summary(result: PipelineResult, output_dir: str) -> None:
 
 
 def run_pipeline(args: argparse.Namespace) -> PipelineResult:
+    """
+    执行主流水线逻辑 (Execute Main Pipeline Logic)
+    
+    Steps:
+    1. Validate Config (验证配置)
+    2. Scrape (抓取)
+    3. Dedupe (去重)
+    4. Filter (过滤)
+    5. Analyze (分析)
+    6. Deliver (交付)
+    """
     os.makedirs(args.output_dir, exist_ok=True)
     today = date.today().strftime("%Y-%m-%d")
     run_id = f"{today}-{int(time.time())}"
@@ -224,6 +251,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         args.strict,
     )
 
+    # 1. 验证配置 (Validate Config)
     valid, config_errors = validate_config(mode=args.output, mock=args.mock)
     if not valid:
         for item in config_errors:
@@ -233,10 +261,12 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         return result
 
     all_articles = []
+    # 2. 开始抓取 (Start Scraping)
     try:
         from src.scrapers.rss_scraper import scrape_rss
         from src.scrapers.web_scraper import scrape_web_sources
 
+        # 2.1 RSS 抓取
         rss_sources = [s for s in DATA_SOURCES if s.source_type == "rss"]
         for source in rss_sources:
             try:
@@ -254,9 +284,11 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
                 if args.strict:
                     raise
 
+        # 2.2 网页抓取 (BeautifulSoup)
         web_articles = scrape_web_sources(args.max_articles)
         all_articles.extend(web_articles)
 
+        # 2.3 动态抓取 (Playwright)
         if not args.skip_dynamic:
             from src.scrapers.dynamic_scraper import scrape_dynamic_sources
 
@@ -278,6 +310,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         result.duration_seconds = round(time.perf_counter() - started, 3)
         return result
 
+    # 3. 去重 (Deduplication)
     deduped_articles = _dedupe_articles(all_articles)
     result.deduped_count = len(deduped_articles)
     logger.info(
@@ -286,6 +319,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         result.deduped_count,
     )
 
+    # 4. 过滤 (Filtering - Ollama/Keyword)
     try:
         from src.filters.ollama_filter import filter_articles
 
@@ -305,8 +339,9 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         result.duration_seconds = round(time.perf_counter() - started, 3)
         return result
 
+    # 5. 分析 (Analysis - LLM)
     try:
-        from src.analyzers.kimi_analyzer import analyze_articles
+        from src.analyzers.llm_analyzer import analyze_articles
 
         analyzed = analyze_articles(relevant_articles, mock=args.mock)
     except Exception as exc:
@@ -322,6 +357,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         result.duration_seconds = round(time.perf_counter() - started, 3)
         return result
 
+    # 6. 交付 (Delivery - Email/Markdown/Notion)
     try:
         from src.delivery.email_sender import (
             render_digest_text,
@@ -334,9 +370,34 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
             logger.info("[DELIVERY] Dry run output printed")
         else:
             if args.output in ("email", "both"):
-                result.email_sent = send_email(analyzed, today)
-                if args.strict and not result.email_sent:
-                    raise RuntimeError("Email delivery failed in strict mode")
+                # Multi-channel delivery based on profiles
+                for profile in RECIPIENT_PROFILES:
+                    if profile.delivery_channel not in ("email", "both"):
+                        continue
+                        
+                    # Filter articles for this persona
+                    # Logic: Include if article is explicitly tagged for this persona,
+                    # OR if article has no tags and this is the default "student" persona.
+                    profile_articles = [
+                        a for a in analyzed 
+                        if profile.persona in (a.target_personas or [])
+                        or (not a.target_personas and profile.persona == "student")
+                    ]
+                    
+                    if not profile_articles:
+                        logger.info(f"[DELIVERY] No articles for profile '{profile.name}'")
+                        continue
+                        
+                    logger.info(f"[DELIVERY] Sending {len(profile_articles)} articles to '{profile.name}'")
+                    success = send_email(profile_articles, today, profile=profile)
+                    
+                    if args.strict and not success:
+                         logger.error(f"[DELIVERY] Failed to send email to '{profile.name}'")
+                         # In strict mode, maybe we should raise? But let's verify other profiles first or fail hard.
+                         # User requested "fail run on any critical stage error"
+                         raise RuntimeError(f"Email delivery failed for profile {profile.name}")
+                
+                result.email_sent = True # Mark as sent if we got here (individual failures raised if strict)
 
             if args.output in ("markdown", "both"):
                 result.markdown_path = save_digest_markdown(
@@ -362,6 +423,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """程序入口点：解析参数，运行流水线，处理异常。"""
     args = parse_args(argv)
     configure_logging(args.log_format)
 

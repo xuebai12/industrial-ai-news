@@ -1,4 +1,8 @@
 """Static web page scraper using BeautifulSoup4."""
+"""
+静态网页抓取器 (Static Web Scraper)
+使用 BeautifulSoup4 和 Requests 抓取普通网页新闻列表。
+"""
 
 import logging
 import re
@@ -13,7 +17,7 @@ from config import DATA_SOURCES
 
 logger = logging.getLogger(__name__)
 
-# User-Agent to avoid being blocked
+# User-Agent to avoid being blocked (设置 UA 防止被反爬)
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -25,6 +29,7 @@ HEADERS = {
 
 
 def _build_session() -> requests.Session:
+    """创建带有重试机制的 HTTP 会话 (Build Request Session with automatic retries)"""
     session = requests.Session()
     retries = Retry(
         total=3,
@@ -41,7 +46,7 @@ def _build_session() -> requests.Session:
 
 
 def _clean_text(text: str, max_len: int = 500) -> str:
-    """Clean and truncate text."""
+    """清洗并截断文本 (Clean and truncate text)."""
     if not text:
         return ""
     text = re.sub(r"<[^>]+>", " ", text)
@@ -50,7 +55,7 @@ def _clean_text(text: str, max_len: int = 500) -> str:
 
 
 def _make_absolute(url: str, base_url: str) -> str:
-    """Ensure URL is absolute."""
+    """确保 URL 是绝对路径 (Ensure URL is absolute)."""
     if url.startswith("http"):
         return url
     from urllib.parse import urljoin
@@ -60,7 +65,13 @@ def _make_absolute(url: str, base_url: str) -> str:
 def scrape_generic_web(source_name: str, url: str, selector: str,
                        lang: str, category: str, max_items: int = 20,
                        session: requests.Session | None = None) -> list[Article]:
-    """Generic scraper for list-based news pages."""
+    """
+    通用网页列表抓取器 (Generic Web Scraper).
+    根据 CSS 选择器抓取新闻列表页面。
+    
+    Args:
+        selector: CSS 选择器，用于定位每篇新闻的容器或链接。
+    """
     logger.info(f"[WEB] Fetching {source_name}: {url}")
     articles: list[Article] = []
 
@@ -82,14 +93,14 @@ def scrape_generic_web(source_name: str, url: str, selector: str,
             
             title = title_el.get_text(strip=True) if title_el else item.get_text(strip=True)
 
-            # 2. Try to find link
+            # 2. Try to find link (查找链接)
             link_el = item if item.name == "a" else item.select_one("a")
             link = link_el.get("href", "") if link_el else ""
 
             if not title or len(title) < 5 or not link:
                 continue
 
-            # 3. Try to find snippet
+            # 3. Try to find snippet (查找摘要)
             snippet_el = item.select_one("p, .description, .summary, .teaser, .text")
             snippet = snippet_el.get_text(strip=True) if snippet_el else ""
 
@@ -111,11 +122,15 @@ def scrape_generic_web(source_name: str, url: str, selector: str,
 
 
 def scrape_web_sources(max_items: int = 20) -> list[Article]:
-    """Run scrapers for all web-type data sources defined in config."""
+    """
+    抓取所有配置为 'web' 类型的源 (Scrape all web sources).
+    根据 config.DATA_SOURCES 中的定义，自动匹配抓取规则。
+    """
     articles: list[Article] = []
     
     # Map sources to specific selectors or generic logic
-    # (Source Name -> CSS Selector for the valid item container or link)
+    # (Source Name -> CSS Selector mapping)
+    # 针对不同网站的 CSS 选择器配置
     selectors = {
         "Plattform Industrie 4.0": ".c-teaser, .card, article a, .use-case a",
         "Fraunhofer IPA Press": ".press-item, .news-item, article",
@@ -127,7 +142,7 @@ def scrape_web_sources(max_items: int = 20) -> list[Article]:
         "de:hub Smart Systems": ".news-item, .card",
     }
     
-    # Generic fallback selector
+    # Generic fallback selector (通用回退选择器)
     default_selector = "article, .news-item, .card, .entry, .post"
 
     web_sources = [s for s in DATA_SOURCES if s.source_type == "web"]

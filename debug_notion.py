@@ -1,10 +1,13 @@
 
 import os
 import sys
+from dotenv import load_dotenv
 from notion_client import Client
 from pprint import pprint
 
-# Load env vars manually since we might not be running via main.py
+# Load env vars
+load_dotenv()
+
 api_key = os.getenv("NOTION_API_KEY")
 db_id = os.getenv("NOTION_DATABASE_ID")
 
@@ -20,6 +23,18 @@ def main():
 
     client = Client(auth=api_key)
     
+    # 0. Search for all accessible databases
+    print("\n--- Searching for all accessible databases ---")
+    try:
+        results = client.search(filter={"value": "database", "property": "object"}).get("results", [])
+        print(f"Found {len(results)} databases:")
+        for r in results:
+            print(f"- Name: {r.get('title', [{}])[0].get('plain_text', 'Untitled')}")
+            print(f"  ID: {r.get('id')}")
+            print(f"  URL: {r.get('url')}")
+    except Exception as e:
+        print(f"❌ Search failed: {e}")
+
     # 1. Check database attributes
     print("\n--- Inspecting DatabasesEndpoint ---")
     print(dir(client.databases))
@@ -29,8 +44,9 @@ def main():
     try:
         db = client.databases.retrieve(database_id=db_id)
         print("✅ Database found!")
-        print("Existing Properties:")
-        pprint(db.get("properties", {}).keys())
+        print("\nFull Database Metadata:")
+        import json
+        print(json.dumps(db, indent=2, ensure_ascii=False))
     except Exception as e:
         print(f"❌ Failed to retrieve database: {e}")
 
