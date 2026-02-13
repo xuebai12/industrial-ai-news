@@ -6,6 +6,20 @@
 python main.py --output email --skip-dynamic --skip-llm-filter --output-dir output
 ```
 
+## Stable scheduled run
+
+```bash
+./run_scheduled_dispatch.sh
+```
+
+This entrypoint enforces:
+
+- fixed `cwd` (`/Users/baixue/news`)
+- fixed runtime (`.venv/bin/python`)
+- single-run lock (prevents overlapping jobs)
+- unified log output (`logs/scheduled-*.log`)
+- post-run ops dashboard + threshold alerts
+
 For strict mode in automation:
 
 ```bash
@@ -16,6 +30,8 @@ python main.py --output both --strict --log-format json --output-dir output
 
 - `output/run-summary-YYYY-MM-DD.json`: run metrics and stage outcomes.
 - `output/error-YYYY-MM-DD.json`: structured error report when run fails.
+- `output/ops-dashboard.md`: latest 7-run operational dashboard.
+- `output/ops-dashboard.json`: machine-readable dashboard payload.
 - `logs/run-YYYY-MM-DD.log`: launch script log stream.
 
 ## Failure categories
@@ -37,14 +53,15 @@ Notion-specific categories inside delivery logs:
 
 1. Open latest `run-summary-*.json` and check `exit_reason`.
 2. If failed, open `error-*.json` and inspect `failures[*]`.
-3. For Notion errors:
+3. Open `ops-dashboard.md` for trend view and alert checks.
+4. For Notion errors:
    - `AUTH`: verify `NOTION_API_KEY` integration access.
    - `SCHEMA`: compare DB property names with service mappings.
    - `RATE_LIMIT`: rerun later or reduce batch size.
-4. For SMTP errors:
+5. For SMTP errors:
    - verify `SMTP_HOST/PORT/USER/PASS/EMAIL_TO`.
    - test with `--output markdown` to isolate mail transport.
-5. For model errors:
+6. For model errors:
    - switch to `--mock` for pipeline smoke validation.
    - verify provider key and model availability.
 

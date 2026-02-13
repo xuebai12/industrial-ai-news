@@ -35,8 +35,12 @@ class NotionDeliveryService:
         Push analyzed articles to Notion database.
         Returns number of newly created entries.
         """
-        existing_urls = self.get_existing_urls()
-        logger.info(f"[NOTION] Found {len(existing_urls)} existing entries in database")
+        existing_urls, existing_titles = self.get_existing_entries()
+        logger.info(
+            "[NOTION] Found existing entries in database: urls=%s titles=%s",
+            len(existing_urls),
+            len(existing_titles),
+        )
 
         pushed = 0
         seen_hashes: set[str] = set()
@@ -44,6 +48,10 @@ class NotionDeliveryService:
             normalized = self.normalize_url(article.source_url or "")
             if normalized and normalized in existing_urls:
                 logger.info(f"[NOTION] Skip (duplicate url): {article.title_zh[:40]}")
+                continue
+            normalized_title = (article.title_zh or article.title_en or "").strip().lower()
+            if normalized_title and normalized_title in existing_titles:
+                logger.info(f"[NOTION] Skip (duplicate title): {article.title_zh[:40]}")
                 continue
 
             dedupe_key = self.article_dedupe_hash(article)
@@ -119,15 +127,18 @@ class NotionDeliveryService:
             return "API"
         return "UNKNOWN"
 
-    def get_existing_urls(self) -> set[str]:
-        """Query database for all existing source URLs (for dedup)."""
+    def get_existing_entries(self) -> tuple[set[str], set[str]]:
+        """Query database for existing URLs and titles (for cross-run dedupe)."""
         urls: set[str] = set()
+        titles: set[str] = set()
         try:
             schema = self.get_database_properties()
             url_property = self.find_url_property_name(schema)
+            title_property = self.find_title_property_name(schema)
             if not url_property:
                 logger.warning("[NOTION] No URL property found in database schema, skip URL dedupe")
-                return urls
+            if not title_property:
+                logger.warning("[NOTION] No title property found in database schema, skip title dedupe")
 
             has_more = True
             start_cursor = None
@@ -149,16 +160,25 @@ class NotionDeliveryService:
                 )
                 for page in resp.get("results", []):
                     props = page.get("properties", {})
-                    url_prop = props.get(url_property, {})
-                    url = url_prop.get("url")
-                    if url:
-                        urls.add(self.normalize_url(url))
+                    if url_property:
+                        url_prop = props.get(url_property, {})
+                        url = url_prop.get("url")
+                        if url:
+                            urls.add(self.normalize_url(url))
+                    if title_property:
+                        title_prop = props.get(title_property, {})
+                        title_items = title_prop.get("title", [])
+                        title_text = "".join(
+                            item.get("plain_text", "") for item in title_items if isinstance(item, dict)
+                        ).strip()
+                        if title_text:
+                            titles.add(title_text.lower())
 
                 has_more = bool(resp.get("has_more", False))
                 start_cursor = resp.get("next_cursor")
         except Exception as e:
             logger.warning(f"[NOTION] Could not fetch existing URLs: {e}")
-        return urls
+        return urls, titles
 
     def create_page(self, article: AnalyzedArticle, today: str) -> None:
         """Create a single Notion database entry with properties and page body."""
@@ -250,12 +270,15 @@ class NotionDeliveryService:
             logger.warning("[NOTION] Missing properties in DB schema, skipped: %s", ", ".join(missing))
         return known
 
-    def parse_multi_select_tags(self, text: str) -> list[dict]:
-        """Parse comma/semicolon separated text into Notion multi-select tags."""
+    def parse_multi_select_tags(self, text: str | list[str] | None) -> list[dict]:
+        """Parse text/list input into Notion multi-select tags."""
         if not text:
             return []
 
-        parts = re.split(r"[,;，；、/]", text)
+        if isinstance(text, list):
+            parts = [str(item).strip() for item in text if str(item).strip()]
+        else:
+            parts = re.split(r"[,;，；、/]", text)
         tags = []
         for part in parts:
             tag = part.strip()

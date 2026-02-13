@@ -161,7 +161,7 @@ RECIPIENT_PROFILES = [
     ),
     RecipientProfile(
         name="Technician (Maintenance)",
-        email=EMAIL_TO,
+        email=",".join([e for e in [EMAIL_TO, "max@max-lang.de"] if e]),
         language="de",  # German localization
         persona="technician",
         delivery_channel="email",
@@ -324,9 +324,4 @@ DATA_SOURCES: list[DataSource] = [
         category="industry",
         priority=1,
     ),
-    "TIA Portal",
-    "OEE",                     # Overall Equipment Effectiveness
-    "Sicherheit",              # Safety
-    "Störungsbehebung",        # Troubleshooting
-    "Wartung",                 # Servicing
 ]

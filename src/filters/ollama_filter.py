@@ -23,6 +23,45 @@ from config import (
 logger = logging.getLogger(__name__)
 _relevance_client: OpenAI | None = None
 
+# 宽进：补充更通用的工业 AI 主题词，覆盖标题/摘要中的常见表达
+BROAD_KEYWORDS = [
+    "industrial",
+    "industry",
+    "manufacturing",
+    "factory",
+    "automation",
+    "robot",
+    "digital",
+    "smart",
+    "simulation",
+    "predictive",
+    "maintenance",
+    "plc",
+    "iot",
+    "ai",
+    "machine learning",
+    "computer vision",
+]
+
+
+def _normalize_text(text: str) -> str:
+    """Lowercase and normalize separators for robust keyword matching."""
+    text = text.lower()
+    text = text.replace("-", " ")
+    text = re.sub(r"[\s_/]+", " ", text)
+    return text
+
+
+def _contains_keyword(text: str, keyword: str) -> bool:
+    """Keyword match with basic word-boundary protection."""
+    kw = _normalize_text(keyword).strip()
+    if not kw:
+        return False
+    # Use boundary matching for single-token keywords to avoid accidental hits.
+    if " " not in kw:
+        return re.search(rf"\b{re.escape(kw)}\b", text) is not None
+    return kw in text
+
 
 def keyword_score(article: Article) -> tuple[int, list[str]]:
     """
@@ -31,27 +70,33 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
     - High-priority keywords: +2 (Tags: Student)
     - Medium-priority keywords: +1
     """
-    text = f"{article.title} {article.content_snippet}".lower()
+    text = _normalize_text(f"{article.title} {article.content_snippet}")
     score = 0
     personas = set()
 
     for kw in TECHNICIAN_KEYWORDS:
-        if kw.lower() in text:
+        if _contains_keyword(text, kw):
             score += 3
             personas.add("technician")
             logger.debug(f"  +3 for Technician keyword '{kw}' in: {article.title[:60]}")
 
     for kw in HIGH_PRIORITY_KEYWORDS:
-        if kw.lower() in text:
+        if _contains_keyword(text, kw):
             score += 2
             personas.add("student") # High priority usually implies core tech relevant to students
             logger.debug(f"  +2 for keyword '{kw}' in: {article.title[:60]}")
 
     for kw in MEDIUM_PRIORITY_KEYWORDS:
-        if kw.lower() in text:
+        if _contains_keyword(text, kw):
             score += 1
             logger.debug(f"  +1 for keyword '{kw}' in: {article.title[:60]}")
-    
+
+    # 宽进：若未命中现有清单，再用通用词做低权重召回
+    if score == 0:
+        for kw in BROAD_KEYWORDS:
+            if _contains_keyword(text, kw):
+                score += 1
+
     # Default to Student if relevant but no specific persona tag
     if score >= RELEVANCE_THRESHOLD and not personas:
         personas.add("student")
@@ -59,14 +104,14 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
     return score, list(personas)
 
 
-def llm_relevance_check(article: Article) -> bool:
+def llm_relevance_check(article: Article) -> bool | None:
     """
     使用 LLM Cloud 进行二次相关性校验 (Secondary Relevance Check using LLM).
     Returns True if relevant (如果相关则返回 True).
     """
     if not LLM_API_KEY:
-        logger.warning("  LLM API key not set — accepting article by default")
-        return True
+        logger.warning("  LLM API key not set")
+        return None
 
     try:
         global _relevance_client
@@ -98,15 +143,21 @@ def llm_relevance_check(article: Article) -> bool:
             timeout=20,
         )
 
-        answer = response.choices[0].message.content.strip().upper()
-        # 判断回答是否为 YES
-        is_relevant = answer.startswith("YES")
+        answer = (response.choices[0].message.content or "").strip().upper()
+        # 容错解析：支持 YES/JA/是 的简短变体；明确 NO/NEIN/否 则拒绝。
+        if re.search(r"\b(NO|NEIN)\b", answer) or "否" in answer:
+            is_relevant = False
+        elif re.search(r"\b(YES|JA)\b", answer) or "是" in answer:
+            is_relevant = True
+        else:
+            # 非结构化回答，作为不确定结果交给上层兜底策略
+            return None
         logger.debug(f"  LLM says {'YES' if is_relevant else 'NO'} for: {article.title[:60]}")
         return is_relevant
 
     except Exception as e:
-        logger.warning(f"  LLM check failed (accepting by default): {e}")
-        return True  # Accept if API is unavailable (API不可用时默认放行)
+        logger.warning(f"  LLM check failed: {e}")
+        return None
 
 
 def filter_articles(articles: list[Article], skip_llm: bool = False) -> list[Article]:
@@ -144,7 +195,12 @@ def filter_articles(articles: list[Article], skip_llm: bool = False) -> list[Art
     else:
         result = []
         for article in scored:
-            if llm_relevance_check(article):
+            llm_result = llm_relevance_check(article)
+            if llm_result is True:
+                result.append(article)
+                continue
+            if llm_result is None and article.relevance_score >= 2:
+                # 严出兜底：仅在 LLM 不可判定时放行高分项，避免整批为 0。
                 result.append(article)
         logger.info(f"[FILTER] {len(result)}/{len(scored)} passed LLM Cloud validation")
 
