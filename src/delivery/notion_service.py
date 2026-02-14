@@ -3,6 +3,8 @@
 import hashlib
 import logging
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from notion_client import Client
@@ -45,7 +47,10 @@ class NotionDeliveryService:
         )
 
         pushed = 0
+        pushed_lock = threading.Lock()
         seen_hashes: set[str] = set()
+        articles_to_push: list[AnalyzedArticle] = []
+
         for article in articles:
             normalized = self.normalize_url(article.source_url or "")
             if normalized and normalized in existing_urls:
@@ -61,11 +66,15 @@ class NotionDeliveryService:
                 logger.info(f"[NOTION] Skip (duplicate hash): {article.title_zh[:40]}")
                 continue
             seen_hashes.add(dedupe_key)
+            articles_to_push.append(article)
 
+        def _process_single(article: AnalyzedArticle) -> None:
+            nonlocal pushed
             try:
                 self.create_page(article, today)
-                pushed += 1
-                logger.info(f"[NOTION] ✅ Pushed {pushed}: {article.title_zh[:50]}")
+                with pushed_lock:
+                    pushed += 1
+                    logger.info(f"[NOTION] ✅ Pushed {pushed}: {article.title_zh[:50]}")
             except NotionDeliveryError as e:
                 logger.error(
                     "[NOTION] ❌ Failed to push '%s': category=%s error=%s",
@@ -84,6 +93,14 @@ class NotionDeliveryService:
                     category,
                     e,
                 )
+
+        if articles_to_push:
+            # Use max_workers=5 to balance speed and avoid hitting rate limits too hard
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [executor.submit(_process_single, art) for art in articles_to_push]
+                for future in futures:
+                    # Result will raise exception if _process_single raised one
+                    future.result()
 
         logger.info(
             f"[NOTION] Done: {pushed} new entries pushed ({len(articles) - pushed} skipped)"
