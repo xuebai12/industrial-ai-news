@@ -37,30 +37,17 @@ class NotionDeliveryService:
         Push analyzed articles to Notion database.
         Returns number of newly created entries.
         """
-        existing_urls, existing_titles = self.get_existing_entries()
-        logger.info(
-            "[NOTION] Found existing entries in database: urls=%s titles=%s",
-            len(existing_urls),
-            len(existing_titles),
-        )
-
         pushed = 0
         seen_hashes: set[str] = set()
         for article in articles:
-            normalized = self.normalize_url(article.source_url or "")
-            if normalized and normalized in existing_urls:
-                logger.info(f"[NOTION] Skip (duplicate url): {article.title_zh[:40]}")
-                continue
-            normalized_title = (article.title_zh or article.title_en or "").strip().lower()
-            if normalized_title and normalized_title in existing_titles:
-                logger.info(f"[NOTION] Skip (duplicate title): {article.title_zh[:40]}")
-                continue
-
             dedupe_key = self.article_dedupe_hash(article)
             if dedupe_key in seen_hashes:
                 logger.info(f"[NOTION] Skip (duplicate hash): {article.title_zh[:40]}")
                 continue
             seen_hashes.add(dedupe_key)
+
+            if self.check_is_duplicate(article):
+                continue
 
             try:
                 self.create_page(article, today)
@@ -89,6 +76,45 @@ class NotionDeliveryService:
             f"[NOTION] Done: {pushed} new entries pushed ({len(articles) - pushed} skipped)"
         )
         return pushed
+
+    def check_is_duplicate(self, article: AnalyzedArticle) -> bool:
+        """Check if article exists in Notion by URL or Title."""
+        try:
+            schema = self.get_database_properties()
+            url_property = self.find_url_property_name(schema)
+            title_property = self.find_title_property_name(schema)
+
+            filters = []
+            if url_property and article.source_url:
+                filters.append({"property": url_property, "url": {"equals": article.source_url}})
+
+            # Check both English and Chinese titles if available
+            title_candidates = [t for t in (article.title_zh, article.title_en) if t]
+            if title_property and title_candidates:
+                for title in title_candidates:
+                    filters.append({"property": title_property, "title": {"equals": title}})
+
+            if not filters:
+                return False
+
+            query_filter = {"or": filters} if len(filters) > 1 else filters[0]
+
+            parent_key, parent_id = self.get_parent_target()
+            # We only need 1 result to confirm duplicate
+            resp = self.query_entries(
+                parent_key=parent_key,
+                parent_id=parent_id,
+                body={"filter": query_filter, "page_size": 1},
+            )
+
+            if resp.get("results"):
+                logger.info(f"[NOTION] Skip (duplicate found in DB): {article.title_zh[:40]}")
+                return True
+
+        except Exception as e:
+            logger.warning(f"[NOTION] Failed to check for duplicates: {e}")
+
+        return False
 
     @staticmethod
     def normalize_url(url: str) -> str:
@@ -128,56 +154,6 @@ class NotionDeliveryService:
                 return "SCHEMA"
             return "API"
         return "UNKNOWN"
-
-    def get_existing_entries(self) -> tuple[set[str], set[str]]:
-        """Query database for existing URLs and titles (for cross-run dedupe)."""
-        urls: set[str] = set()
-        titles: set[str] = set()
-        try:
-            schema = self.get_database_properties()
-            url_property = self.find_url_property_name(schema)
-            title_property = self.find_title_property_name(schema)
-            if not url_property:
-                logger.warning("[NOTION] No URL property found in database schema, skip URL dedupe")
-            if not title_property:
-                logger.warning("[NOTION] No title property found in database schema, skip title dedupe")
-
-            has_more = True
-            start_cursor = None
-            seen_cursors: set[str | None] = set()
-            while has_more:
-                if start_cursor in seen_cursors:
-                    logger.warning("[NOTION] Cursor loop detected, stopping pagination")
-                    break
-                seen_cursors.add(start_cursor)
-
-                body = {"page_size": 100}
-                if start_cursor:
-                    body["start_cursor"] = start_cursor
-
-                parent_key, parent_id = self.get_parent_target()
-                resp = self.query_entries(parent_key=parent_key, parent_id=parent_id, body=body)
-                for page in resp.get("results", []):
-                    props = page.get("properties", {})
-                    if url_property:
-                        url_prop = props.get(url_property, {})
-                        url = url_prop.get("url")
-                        if url:
-                            urls.add(self.normalize_url(url))
-                    if title_property:
-                        title_prop = props.get(title_property, {})
-                        title_items = title_prop.get("title", [])
-                        title_text = "".join(
-                            item.get("plain_text", "") for item in title_items if isinstance(item, dict)
-                        ).strip()
-                        if title_text:
-                            titles.add(title_text.lower())
-
-                has_more = bool(resp.get("has_more", False))
-                start_cursor = resp.get("next_cursor")
-        except Exception as e:
-            logger.warning(f"[NOTION] Could not fetch existing URLs: {e}")
-        return urls, titles
 
     def create_page(self, article: AnalyzedArticle, today: str) -> None:
         """Create a single Notion database entry with properties and page body."""
