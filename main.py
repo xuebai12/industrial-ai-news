@@ -263,26 +263,41 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
     all_articles = []
     # 2. 开始抓取 (Start Scraping)
     try:
-        from src.scrapers.rss_scraper import scrape_rss
+        from src.scrapers.rss_scraper import scrape_rss_feeds
         from src.scrapers.web_scraper import scrape_web_sources
 
         # 2.1 RSS 抓取
         rss_sources = [s for s in DATA_SOURCES if s.source_type == "rss"]
-        for source in rss_sources:
-            try:
-                articles = scrape_rss(
-                    name=source.name,
-                    url=source.url,
-                    language=source.language,
-                    category=source.category,
-                    max_items=args.max_articles,
+        if rss_sources:
+            rss_inputs = [
+                {
+                    "name": s.name,
+                    "url": s.url,
+                    "language": s.language,
+                    "category": s.category,
+                }
+                for s in rss_sources
+            ]
+            rss_articles, rss_failures = scrape_rss_feeds(
+                rss_inputs, max_items=args.max_articles
+            )
+            all_articles.extend(rss_articles)
+
+            for failure in rss_failures:
+                _append_failure(
+                    result,
+                    "scrape",
+                    "SCRAPE",
+                    failure["error"],
+                    source=failure["source"],
                 )
-                all_articles.extend(articles)
-            except Exception as exc:
-                _append_failure(result, "scrape", "SCRAPE", str(exc), source=source.name)
-                logger.error("[SCRAPE] RSS source failed: %s | %s", source.name, exc)
+                logger.error(
+                    "[SCRAPE] RSS source failed: %s | %s",
+                    failure["source"],
+                    failure["error"],
+                )
                 if args.strict:
-                    raise
+                    raise Exception(f"RSS source failed: {failure['source']}")
 
         # 2.2 网页抓取 (BeautifulSoup)
         web_articles = scrape_web_sources(args.max_articles)

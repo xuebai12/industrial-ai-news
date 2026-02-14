@@ -5,6 +5,7 @@ RSS 订阅源抓取器 (RSS Feed Scraper)
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Optional
 
@@ -101,3 +102,43 @@ def scrape_rss(name: str, url: str, language: str, category: str,
         logger.error(f"[RSS] Failed to scrape {name}: {e}")
 
     return articles
+
+
+def scrape_rss_feeds(sources_data: list[dict], max_items: int = 20, max_workers: int = 5) -> tuple[list[Article], list[dict]]:
+    """
+    Fetch multiple RSS feeds in parallel.
+
+    Args:
+        sources_data: List of dicts with keys: name, url, language, category.
+        max_items: Max items per feed.
+        max_workers: Number of threads.
+
+    Returns:
+        tuple: (list of articles, list of failures [{'source': name, 'error': str}])
+    """
+    articles = []
+    failures = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_source = {
+            executor.submit(
+                scrape_rss,
+                src['name'],
+                src['url'],
+                src['language'],
+                src['category'],
+                max_items
+            ): src
+            for src in sources_data
+        }
+
+        for future in as_completed(future_to_source):
+            src = future_to_source[future]
+            try:
+                found = future.result()
+                articles.extend(found)
+            except Exception as e:
+                logger.error(f"[RSS] Parallel execution error for {src['name']}: {e}")
+                failures.append({'source': src['name'], 'error': str(e)})
+
+    return articles, failures
