@@ -18,11 +18,21 @@ logger = logging.getLogger(__name__)
 # Initialize client (OpenAI-compatible)
 _client: OpenAI | None = None
 
+def _get_env_with_fallback(new_key: str, old_key: str, default: str) -> str:
+    """Get environment variable with fallback to legacy key."""
+    if val := os.getenv(new_key):
+        return val
+    if val := os.getenv(old_key):
+        logger.warning(f"Deprecation Warning: Environment variable '{old_key}' is deprecated. Please use '{new_key}' instead.")
+        return val
+    return default
+
+
 # Local models need more tokens, but should run with low randomness for stable JSON.
 IS_LOCAL = API_PROVIDER == "Local_Ollama"
-MAX_TOKENS = int(os.getenv("KIMI_MAX_TOKENS", "2600" if IS_LOCAL else "800"))
-REQUEST_TIMEOUT_SECONDS = float(os.getenv("KIMI_TIMEOUT_SECONDS", "45")) # Kept env var name for compatibility or should query user? Let's use generic default
-MAX_CONCURRENCY = max(1, int(os.getenv("KIMI_MAX_CONCURRENCY", "1" if IS_LOCAL else "4")))
+MAX_TOKENS = int(_get_env_with_fallback("LLM_MAX_TOKENS", "KIMI_MAX_TOKENS", "2600" if IS_LOCAL else "800"))
+REQUEST_TIMEOUT_SECONDS = float(_get_env_with_fallback("LLM_TIMEOUT_SECONDS", "KIMI_TIMEOUT_SECONDS", "45"))
+MAX_CONCURRENCY = max(1, int(_get_env_with_fallback("LLM_MAX_CONCURRENCY", "KIMI_MAX_CONCURRENCY", "1" if IS_LOCAL else "4")))
 
 def _get_client() -> OpenAI:
     """Lazy-init API client (延迟初始化 API 客户端)."""
