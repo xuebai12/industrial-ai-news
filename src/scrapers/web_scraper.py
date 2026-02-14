@@ -8,6 +8,7 @@ import logging
 import json
 import os
 import re
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -98,7 +99,6 @@ def _make_absolute(url: str, base_url: str) -> str:
     """确保 URL 是绝对路径 (Ensure URL is absolute)."""
     if url.startswith("http"):
         return url
-    from urllib.parse import urljoin
     return urljoin(base_url, url)
 
 
