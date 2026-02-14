@@ -7,8 +7,10 @@ import json
 import logging
 import os
 import re
+from typing import Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
+from json_repair import repair_json
 
 from src.models import Article, AnalyzedArticle
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, API_PROVIDER
@@ -44,80 +46,52 @@ def _extract_json(text: str) -> dict | None:
     Robustly extract a JSON object from model output.
     从模型输出中鲁棒地提取 JSON 对象。
     Handles: pure JSON, markdown code blocks, JSON embedded in free text.
+    Uses json-repair library for enhanced robustness.
     """
     if not text or not text.strip():
         return None
 
     raw = text.strip()
 
-    def _try_parse(candidate: str) -> dict | None:
-        s = (candidate or "").strip()
-        if not s:
-            return None
-        try:
-            return json.loads(s)
-        except json.JSONDecodeError:
-            # Common repairs for local model outputs
-            repaired = s.replace("“", '"').replace("”", '"').replace("’", "'")
-            repaired = repaired.replace("\ufeff", "")
-            repaired = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F]', "", repaired)
-            repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
-            try:
-                return json.loads(repaired)
-            except json.JSONDecodeError:
-                return None
-
-    # Strategy 1: Try direct parse (ideal case)
-    parsed = _try_parse(raw)
-    if parsed is not None:
-        return parsed
-
-    # Strategy 2: Extract from markdown ```json ... ``` blocks
+    # Strategy: Extract from markdown ```json ... ``` blocks if present
     md_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw, re.DOTALL)
     if md_match:
-        parsed = _try_parse(md_match.group(1).strip())
-        if parsed is not None:
+        candidate = md_match.group(1).strip()
+    else:
+        # Also handle unclosed markdown fence which json-repair might handle, but stripping fence helps
+        md_unclosed = re.search(r'```(?:json)?\s*\n?(.*)$', raw, re.DOTALL)
+        if md_unclosed:
+            candidate = md_unclosed.group(1).replace("```", "").strip()
+        else:
+            candidate = raw
+
+    try:
+        # Use json_repair to parse and repair JSON
+        # return_objects=True ensures we get a Python object (dict/list) back
+        parsed = repair_json(candidate, return_objects=True)
+
+        if isinstance(parsed, dict):
             return parsed
+        elif isinstance(parsed, list):
+            # Sometimes models return a list of objects
+            if parsed and isinstance(parsed[0], dict):
+                logger.warning(f"[{API_PROVIDER}] JSON extracted as list, using first item.")
+                return parsed[0]
+            logger.warning(f"[{API_PROVIDER}] JSON extracted as list but no dict found: {parsed}")
+            return None
 
-    # Strategy 2b: Unclosed markdown fence (common in truncated local outputs)
-    md_unclosed = re.search(r'```(?:json)?\s*\n?(.*)$', raw, re.DOTALL)
-    if md_unclosed:
-        candidate = md_unclosed.group(1).replace("```", "").strip()
-        parsed = _try_parse(candidate)
-        if parsed is not None:
-            return parsed
+        # If parsed is None or empty string (if return_objects=False default fallback, but here True)
+        # repair_json returns empty string if no json found? No, documentation says it returns parsed object.
+        # If it returns empty string/list/dict, we handle it.
+        if not parsed:
+             return None
 
-    # Strategy 3: Find the first { ... } block using brace matching
-    brace_start = raw.find('{')
-    if brace_start != -1:
-        depth = 0
-        for i in range(brace_start, len(raw)):
-            if raw[i] == '{':
-                depth += 1
-            elif raw[i] == '}':
-                depth -= 1
-                if depth == 0:
-                    candidate = raw[brace_start:i + 1]
-                    parsed = _try_parse(candidate)
-                    if parsed is not None:
-                        return parsed
-                    break
+        logger.warning(f"[{API_PROVIDER}] Extracted JSON is not a dict: {type(parsed)}")
+        return None
 
-        # Strategy 3b: If text is truncated and only missing closing braces, try autoclose
-        tail = raw[brace_start:]
-        depth = 0
-        for ch in tail:
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-        if depth > 0:
-            repaired = tail + ("}" * depth)
-            parsed = _try_parse(repaired)
-            if parsed is not None:
-                return parsed
-
-    return None
+    except Exception as e:
+        logger.error(f"[{API_PROVIDER}] JSON repair failed: {e}")
+        return None
 
 
 # 系统提示词 (System Prompt)
@@ -255,7 +229,7 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
         )
 
     # Helper to force string type
-    def _ensure_str(value: any) -> str:
+    def _ensure_str(value: Any) -> str:
         if value is None:
             return ""
         if isinstance(value, str):
