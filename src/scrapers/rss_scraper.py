@@ -5,6 +5,7 @@ RSS 订阅源抓取器 (RSS Feed Scraper)
 """
 
 import logging
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -46,7 +47,6 @@ def get_content_snippet(entry: dict, max_len: int = 500) -> str:
         text = ""
 
     # Strip HTML tags simply (简单去除 HTML 标签)
-    import re
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:max_len]
