@@ -1,5 +1,6 @@
-"""Relevance filtering with keyword scoring + cloud LLM validation."""
 """
+Relevance filtering with keyword scoring + cloud LLM validation.
+
 相关性过滤模块 (Relevance Filtering)
 结合 关键词评分 (Keyword Scoring) 和 云端 LLM 校验 (Cloud LLM Validation) 进行双重过滤。
 """
@@ -10,16 +11,16 @@ import re
 
 from openai import OpenAI
 
-from src.models import Article
 from config import (
     HIGH_PRIORITY_KEYWORDS,
-    MEDIUM_PRIORITY_KEYWORDS,
-    TECHNICIAN_KEYWORDS,
     LLM_API_KEY,
     LLM_BASE_URL,
     LLM_MODEL,
+    MEDIUM_PRIORITY_KEYWORDS,
     RELEVANCE_THRESHOLD,
+    TECHNICIAN_KEYWORDS,
 )
+from src.models import Article
 
 logger = logging.getLogger(__name__)
 _relevance_client: OpenAI | None = None
@@ -177,18 +178,14 @@ def filter_articles(articles: list[Article], skip_llm: bool = False) -> list[Art
     for article in articles:
         score, personas = keyword_score(article)
         article.relevance_score = score
-        # We need to add target_personas to Article model first? 
-        # Wait, Article model is raw, AnalyzedArticle has target_personas. 
-        # But we filter Article objects here. 
-        # Let's dynamically attach it or update Article model.
-        # Check src/models.py again. Article does NOT have target_personas.
-        # Decision: Add target_personas to Article model as well to carry it through.
-        setattr(article, "target_personas", personas) # Temporary dynamic attribute until models.py updated for Article
+        article.target_personas = personas
 
         if score >= RELEVANCE_THRESHOLD:
             scored.append(article)
 
-    logger.info(f"[FILTER] {len(scored)}/{len(articles)} passed keyword threshold (>={RELEVANCE_THRESHOLD})")
+    logger.info(
+        f"[FILTER] {len(scored)}/{len(articles)} passed keyword threshold (>={RELEVANCE_THRESHOLD})"
+    )
 
     if skip_llm:
         logger.info("[FILTER] Skipping LLM validation (keyword-only mode)")
