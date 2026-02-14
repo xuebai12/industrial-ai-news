@@ -89,7 +89,15 @@ def _clean_text(text: str, max_len: int = 500) -> str:
     """清洗并截断文本 (Clean and truncate text)."""
     if not text:
         return ""
-    text = re.sub(r"<[^>]+>", " ", text)
+
+    # Use BeautifulSoup to parse and clean
+    soup = BeautifulSoup(text, "html.parser")
+
+    # Remove script and style elements
+    for element in soup(["script", "style"]):
+        element.decompose()
+
+    text = soup.get_text(separator=" ")
     text = re.sub(r"\s+", " ", text).strip()
     return text[:max_len]
 
