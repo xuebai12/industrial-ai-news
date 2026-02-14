@@ -93,6 +93,16 @@ HIGH_PRIORITY_KEYWORDS = [
     "Discrete Event Simulation",
     "Digital Twin",
     "Digitaler Zwilling",
+    "Machine Vision",
+    "Industrial Vision",
+    "Edge AI",
+    "AIoT",
+    "Virtual Commissioning",
+    "Predictive Quality",
+    "Condition Monitoring",
+    "Industrial Copilot",
+    "Production Optimization",
+    "Smart Maintenance",
 ]
 
 # 技师视角高优先级关键词 (+3 分)
@@ -106,6 +116,13 @@ TECHNICIAN_KEYWORDS = [
     "Sicherheit",              # Safety
     "Störungsbehebung",        # Troubleshooting
     "Wartung",                 # Servicing
+    "Inbetriebnahme",          # Commissioning
+    "Fernwartung",             # Remote maintenance
+    "SCADA",
+    "MES",
+    "HMI",
+    "OPC UA",
+    "Anomaly Detection",
 ]
 
 # 中优先级关键词 (+1 分)
@@ -131,6 +148,25 @@ MEDIUM_PRIORITY_KEYWORDS = [
     "Machine Learning in Manufacturing",
     "Computer Vision in Manufacturing",
     "Industrial Computer Vision",
+    "Applied AI",
+    "AI in manufacturing",
+    "Production AI",
+    "Factory AI",
+    "Shopfloor AI",
+    "Industrial GenAI",
+    "MLOps",
+    "DataOps",
+    "Quality Inspection",
+    "Defect Detection",
+    "Process Mining",
+    "Time Series Forecasting",
+    "Demand Forecasting",
+    "Adaptive Control",
+    "Closed-loop optimization",
+    "Asset Performance Management",
+    "Energy Management",
+    "Lean Manufacturing",
+    "Batch Optimization",
 ]
 
 
@@ -275,14 +311,6 @@ DATA_SOURCES: list[DataSource] = [
         priority=2,
     ),
     DataSource(
-        name="Siemens Digital Industries",
-        url="https://www.siemens.com/global/en/products/automation.html",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
         name="VDI Nachrichten Tech",
         url="https://www.vdi-nachrichten.com/technik/",
         source_type="web",
@@ -298,24 +326,40 @@ DATA_SOURCES: list[DataSource] = [
         category="industry",
         priority=2,
     ),
+    DataSource(
+        name="ABB Robotics News",
+        url="https://new.abb.com/news",
+        source_type="web",
+        language="en",
+        category="industry",
+        priority=2,
+    ),
+    DataSource(
+        name="Rockwell Automation Blog",
+        url="https://www.rockwellautomation.com/en-us/company/news/blogs.html",
+        source_type="web",
+        language="en",
+        category="industry",
+        priority=2,
+    ),
+    DataSource(
+        name="NVIDIA Manufacturing AI Blog",
+        url="https://blogs.nvidia.com/blog/category/manufacturing/",
+        source_type="web",
+        language="en",
+        category="industry",
+        priority=2,
+    ),
+    DataSource(
+        name="Bosch Stories (Manufacturing/AI)",
+        url="https://www.bosch.com/stories/",
+        source_type="web",
+        language="en",
+        category="industry",
+        priority=2,
+    ),
 
     # --- 3. Global Academic & Dynamic (Standard) (全球学术与动态源) ---
-    DataSource(
-        name="arXiv cs.AI (Simulation/RL)",
-        url="https://rss.arxiv.org/rss/cs.AI",
-        source_type="rss",
-        language="en",
-        category="research",
-        priority=1,
-    ),
-    DataSource(
-        name="arXiv cs.SY (Systems)",
-        url="https://rss.arxiv.org/rss/cs.SY",
-        source_type="rss",
-        language="en",
-        category="research",
-        priority=1,
-    ),
     DataSource(
         name="Handelsblatt Tech",
         url="https://www.handelsblatt.com/technik/",

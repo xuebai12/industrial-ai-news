@@ -248,23 +248,38 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
             target_personas=article.target_personas, # Pass through
         )
 
+    # Helper to force string type
+    def _ensure_str(value: any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            # Join list items with space or comma
+            return " ".join(str(v) for v in value)
+        if isinstance(value, dict):
+            # Fallback for dict (should stay rare): dump as string
+            return json.dumps(value, ensure_ascii=False)
+        return str(value)
+
     # Construct AnalyzedArticle from JSON data
+    # creating AnalyzedArticle with sanitized inputs
     analyzed = AnalyzedArticle(
-        category_tag=data.get("category_tag", "Other"),
-        title_zh=data.get("title_zh", article.title),
-        title_en=data.get("title_en", article.title),
-        title_de=data.get("title_de", article.title),
-        core_tech_points=data.get("core_tech_points", ""),
-        german_context=data.get("german_context", ""),
-        source_name=article.source,
-        source_url=article.url,
-        summary_zh=data.get("summary_zh", ""),
-        summary_en=data.get("summary_en", ""),
-        summary_de=data.get("summary_de", ""),
-        tool_stack=data.get("tool_stack", ""),
-        simple_explanation=data.get("simple_explanation", ""),
-        technician_analysis_de=data.get("technician_analysis_de", ""),
-        target_personas=article.target_personas, # Pass through
+        category_tag=_ensure_str(data.get("category_tag", "Other")),
+        title_zh=_ensure_str(data.get("title_zh", article.title)),
+        title_en=_ensure_str(data.get("title_en", article.title)),
+        title_de=_ensure_str(data.get("title_de", article.title)),
+        core_tech_points=_ensure_str(data.get("core_tech_points", "")),
+        german_context=_ensure_str(data.get("german_context", "")),
+        source_name=_ensure_str(article.source),
+        source_url=_ensure_str(article.url),
+        summary_zh=_ensure_str(data.get("summary_zh", "")),
+        summary_en=_ensure_str(data.get("summary_en", "")),
+        summary_de=_ensure_str(data.get("summary_de", "")),
+        tool_stack=_ensure_str(data.get("tool_stack", "")),
+        simple_explanation=_ensure_str(data.get("simple_explanation", "")),
+        technician_analysis_de=_ensure_str(data.get("technician_analysis_de", "")),
+        target_personas=article.target_personas, # List type is expected here
         original=article,
     )
 

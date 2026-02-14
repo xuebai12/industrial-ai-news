@@ -5,6 +5,7 @@
 """
 
 import logging
+import os
 import re
 
 from openai import OpenAI
@@ -22,6 +23,7 @@ from config import (
 
 logger = logging.getLogger(__name__)
 _relevance_client: OpenAI | None = None
+MIN_RELEVANT_ARTICLES = max(0, int(os.getenv("MIN_RELEVANT_ARTICLES", "5")))
 
 # 宽进：补充更通用的工业 AI 主题词，覆盖标题/摘要中的常见表达
 BROAD_KEYWORDS = [
@@ -172,7 +174,6 @@ def filter_articles(articles: list[Article], skip_llm: bool = False) -> list[Art
     logger.info(f"[FILTER] Starting filter on {len(articles)} articles")
 
     scored: list[Article] = []
-    scored: list[Article] = []
     for article in articles:
         score, personas = keyword_score(article)
         article.relevance_score = score
@@ -203,6 +204,26 @@ def filter_articles(articles: list[Article], skip_llm: bool = False) -> list[Art
                 # 严出兜底：仅在 LLM 不可判定时放行高分项，避免整批为 0。
                 result.append(article)
         logger.info(f"[FILTER] {len(result)}/{len(scored)} passed LLM Cloud validation")
+
+    # Ensure a minimum daily volume for digest stability.
+    if MIN_RELEVANT_ARTICLES and len(result) < MIN_RELEVANT_ARTICLES:
+        existing_keys = {
+            f"{(a.url or '').strip()}|{(a.title or '').strip().lower()}"
+            for a in result
+        }
+        for candidate in sorted(scored, key=lambda a: a.relevance_score, reverse=True):
+            key = f"{(candidate.url or '').strip()}|{(candidate.title or '').strip().lower()}"
+            if key in existing_keys:
+                continue
+            result.append(candidate)
+            existing_keys.add(key)
+            if len(result) >= MIN_RELEVANT_ARTICLES:
+                break
+        logger.info(
+            "[FILTER] Applied minimum-volume fallback: now %s items (target=%s)",
+            len(result),
+            MIN_RELEVANT_ARTICLES,
+        )
 
     # Sort by relevance score descending (按分数降序排序)
     result.sort(key=lambda a: a.relevance_score, reverse=True)

@@ -165,6 +165,24 @@ If you already have a generated digest markdown file and want to import it into 
 ./.venv/bin/python push_digest_to_notion.py output/digest-2026-02-12.md --date 2026-02-12
 ```
 
+### Notion Rating Feedback Loop
+
+Pull your rated Notion entries (1-5) and generate a local optimization report:
+
+```bash
+# Step 1: fetch rated records from Notion (default lookback: 30 days)
+./.venv/bin/python fetch_notion_feedback.py --days 30 --output-dir output
+
+# Step 2: build feedback report (source/category/keyword performance)
+./.venv/bin/python build_feedback_report.py --output-dir output --min-samples 3
+```
+
+Outputs:
+
+- `output/feedback-YYYY-MM-DD.json`
+- `output/feedback-report-YYYY-MM-DD.json`
+- `output/feedback-report-YYYY-MM-DD.md`
+
 ## 📂 Project Structure | 项目结构
 
 - `src/scrapers/`: Parsers for RSS and Websites.

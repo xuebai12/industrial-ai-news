@@ -137,9 +137,12 @@ def scrape_web_sources(max_items: int = 20) -> list[Article]:
         "DFKI News": ".news-item, article, .portlet-body a",
         "TUM fml (Logistics)": ".news-item, article, .ce-textpic",
         "SimPlan Blog/News": "article, .post, .entry",
-        "Siemens Digital Industries": "a.card, .card__link",
         "VDI Nachrichten Tech": "article, .vdi-card",
         "de:hub Smart Systems": ".news-item, .card",
+        "ABB Robotics News": "article a, .news-item a, .teaser a, a[href*='/news/']",
+        "Rockwell Automation Blog": "article a, .cmp-teaser a, .card a, a[href*='/blogs/']",
+        "NVIDIA Manufacturing AI Blog": "article a, .post-card a, .archive-item a, a[href*='/blog/']",
+        "Bosch Stories (Manufacturing/AI)": "article a, .story-teaser a, .teaser a, a[href*='/stories/']",
     }
     
     # Generic fallback selector (通用回退选择器)
