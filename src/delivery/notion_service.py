@@ -37,7 +37,7 @@ class NotionDeliveryService:
         Push analyzed articles to Notion database.
         Returns number of newly created entries.
         """
-        existing_urls, existing_titles = self.get_existing_entries()
+        existing_urls, existing_titles = self.get_existing_entries(articles)
         logger.info(
             "[NOTION] Found existing entries in database: urls=%s titles=%s",
             len(existing_urls),
@@ -129,7 +129,9 @@ class NotionDeliveryService:
             return "API"
         return "UNKNOWN"
 
-    def get_existing_entries(self) -> tuple[set[str], set[str]]:
+    def get_existing_entries(
+        self, candidates: list[AnalyzedArticle] | None = None
+    ) -> tuple[set[str], set[str]]:
         """Query database for existing URLs and titles (for cross-run dedupe)."""
         urls: set[str] = set()
         titles: set[str] = set()
@@ -140,44 +142,134 @@ class NotionDeliveryService:
             if not url_property:
                 logger.warning("[NOTION] No URL property found in database schema, skip URL dedupe")
             if not title_property:
-                logger.warning("[NOTION] No title property found in database schema, skip title dedupe")
+                logger.warning(
+                    "[NOTION] No title property found in database schema, skip title dedupe"
+                )
 
-            has_more = True
-            start_cursor = None
-            seen_cursors: set[str | None] = set()
-            while has_more:
-                if start_cursor in seen_cursors:
-                    logger.warning("[NOTION] Cursor loop detected, stopping pagination")
-                    break
-                seen_cursors.add(start_cursor)
+            # Strategy 1: Full Scan (Legacy)
+            if candidates is None:
+                self._fetch_and_process(
+                    {"page_size": 100}, url_property, title_property, urls, titles
+                )
+                return urls, titles
 
-                body = {"page_size": 100}
-                if start_cursor:
-                    body["start_cursor"] = start_cursor
+            # Strategy 2: Recent + Targeted
+            # 2a. Fetch Recent (past month)
+            self._fetch_and_process(
+                {
+                    "page_size": 100,
+                    "filter": {"timestamp": "created_time", "created_time": {"past_month": {}}},
+                },
+                url_property,
+                title_property,
+                urls,
+                titles,
+            )
 
-                parent_key, parent_id = self.get_parent_target()
-                resp = self.query_entries(parent_key=parent_key, parent_id=parent_id, body=body)
-                for page in resp.get("results", []):
-                    props = page.get("properties", {})
-                    if url_property:
-                        url_prop = props.get(url_property, {})
-                        url = url_prop.get("url")
-                        if url:
-                            urls.add(self.normalize_url(url))
-                    if title_property:
-                        title_prop = props.get(title_property, {})
-                        title_items = title_prop.get("title", [])
-                        title_text = "".join(
-                            item.get("plain_text", "") for item in title_items if isinstance(item, dict)
-                        ).strip()
-                        if title_text:
-                            titles.add(title_text.lower())
+            # 2b. Identify Missing
+            missing_candidates = []
+            for c in candidates:
+                is_covered = False
+                if c.source_url:
+                    norm_url = self.normalize_url(c.source_url)
+                    if norm_url in urls:
+                        is_covered = True
 
-                has_more = bool(resp.get("has_more", False))
-                start_cursor = resp.get("next_cursor")
+                if not is_covered:
+                    title_text = c.title_zh or c.title_en or ""
+                    norm_title = title_text.strip().lower()
+                    if norm_title and norm_title in titles:
+                        is_covered = True
+
+                if not is_covered:
+                    missing_candidates.append(c)
+
+            # 2c. Fetch Specific (for missing)
+            if missing_candidates:
+                batch_size = 10
+                for i in range(0, len(missing_candidates), batch_size):
+                    batch = missing_candidates[i : i + batch_size]
+                    or_filters = []
+                    for item in batch:
+                        if url_property and item.source_url:
+                            or_filters.append(
+                                {"property": url_property, "url": {"equals": item.source_url}}
+                            )
+                        if title_property:
+                            title_text = item.title_zh or item.title_en or ""
+                            if title_text:
+                                or_filters.append(
+                                    {"property": title_property, "title": {"equals": title_text}}
+                                )
+
+                    if or_filters:
+                        self._fetch_and_process(
+                            {"page_size": 100, "filter": {"or": or_filters}},
+                            url_property,
+                            title_property,
+                            urls,
+                            titles,
+                        )
+
         except Exception as e:
             logger.warning(f"[NOTION] Could not fetch existing URLs: {e}")
         return urls, titles
+
+    def _process_page_results(
+        self,
+        page: dict,
+        url_property: str | None,
+        title_property: str | None,
+        urls: set[str],
+        titles: set[str],
+    ) -> None:
+        props = page.get("properties", {})
+        if url_property:
+            url_prop = props.get(url_property, {})
+            url = url_prop.get("url")
+            if url:
+                urls.add(self.normalize_url(url))
+        if title_property:
+            title_prop = props.get(title_property, {})
+            title_items = title_prop.get("title", [])
+            title_text = "".join(
+                item.get("plain_text", "") for item in title_items if isinstance(item, dict)
+            ).strip()
+            if title_text:
+                titles.add(title_text.lower())
+
+    def _fetch_and_process(
+        self,
+        body: dict,
+        url_property: str | None,
+        title_property: str | None,
+        urls: set[str],
+        titles: set[str],
+    ) -> None:
+        has_more = True
+        start_cursor = None
+        seen_cursors: set[str | None] = set()
+
+        query_body = body.copy()
+
+        while has_more:
+            if start_cursor in seen_cursors:
+                logger.warning("[NOTION] Cursor loop detected, stopping pagination")
+                break
+            seen_cursors.add(start_cursor)
+
+            if start_cursor:
+                query_body["start_cursor"] = start_cursor
+            elif "start_cursor" in query_body:
+                del query_body["start_cursor"]
+
+            parent_key, parent_id = self.get_parent_target()
+            resp = self.query_entries(parent_key=parent_key, parent_id=parent_id, body=query_body)
+            for page in resp.get("results", []):
+                self._process_page_results(page, url_property, title_property, urls, titles)
+
+            has_more = bool(resp.get("has_more", False))
+            start_cursor = resp.get("next_cursor")
 
     def create_page(self, article: AnalyzedArticle, today: str) -> None:
         """Create a single Notion database entry with properties and page body."""
