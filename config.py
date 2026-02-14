@@ -274,7 +274,7 @@ DATA_SOURCES: list[DataSource] = [
         source_type="web",
         language="de",
         category="policy",
-        priority=3,
+        priority=1,
     ),
     DataSource(
         name="Fraunhofer IPA Press",
@@ -359,7 +359,23 @@ DATA_SOURCES: list[DataSource] = [
         priority=2,
     ),
 
-    # --- 3. Global Academic & Dynamic (Standard) (全球学术与动态源) ---
+    # --- 3. Global Academic & Dynamic (Mixed) (全球学术与动态源) ---
+    DataSource(
+        name="arXiv cs.AI (Simulation/RL)",
+        url="https://rss.arxiv.org/rss/cs.AI",
+        source_type="rss",
+        language="en",
+        category="research",
+        priority=2,
+    ),
+    DataSource(
+        name="arXiv cs.SY (Systems)",
+        url="https://rss.arxiv.org/rss/cs.SY",
+        source_type="rss",
+        language="en",
+        category="research",
+        priority=2,
+    ),
     DataSource(
         name="Handelsblatt Tech",
         url="https://www.handelsblatt.com/technik/",

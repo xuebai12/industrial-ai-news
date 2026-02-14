@@ -62,7 +62,26 @@ def parse_property_value(prop: dict, prop_type: str):
     return None
 
 
-def fetch_all_pages(client: Client, database_id: str, date_prop: str | None, since: str | None) -> list[dict]:
+def _notion_request(method: str, path: str, api_key: str, body: dict | None = None) -> dict:
+    url = f"https://api.notion.com/v1/{path}"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+    }
+    timeout = httpx.Timeout(30.0)
+    try:
+        if method.upper() == "GET":
+            resp = httpx.get(url, headers=headers, params=body, timeout=timeout)
+        else:
+            resp = httpx.post(url, headers=headers, json=body, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        print(f"DEBUG: HTTP Error {e.response.status_code}: {e.response.text}")
+        raise
+
+def fetch_all_pages(api_key: str, database_id: str, date_prop: str | None, since: str | None) -> list[dict]:
     rows: list[dict] = []
     start_cursor = None
     while True:
@@ -75,11 +94,7 @@ def fetch_all_pages(client: Client, database_id: str, date_prop: str | None, sin
                 "date": {"on_or_after": since},
             }
 
-        resp = client.request(
-            path=f"databases/{database_id}/query",
-            method="POST",
-            body=body,
-        )
+        resp = _notion_request("POST", f"databases/{database_id}/query", api_key, body)
         rows.extend(resp.get("results", []))
         if not resp.get("has_more"):
             break
@@ -89,6 +104,7 @@ def fetch_all_pages(client: Client, database_id: str, date_prop: str | None, sin
 
 import uuid
 import traceback
+import httpx
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fetch Notion ratings to local JSON")
@@ -96,6 +112,11 @@ def main() -> int:
     parser.add_argument("--output-dir", default="output")
     parser.add_argument("--include-unrated", action="store_true", help="Keep rows without score")
     args = parser.parse_args()
+
+    # Check for proxy vars (debug)
+    for k, v in os.environ.items():
+        if "proxy" in k.lower():
+            print(f"DEBUG: Proxy Var: {k}='{v}'")
 
     load_dotenv()
     api_key = os.getenv("NOTION_API_KEY", "").strip()
@@ -110,42 +131,29 @@ def main() -> int:
 
     print(f"DEBUG: Using Database ID: {database_id} (len={len(database_id)})")
 
-    client = Client(auth=api_key)
-    # Note: retrieve likely works but returns partial object?
+    # 1. Fetch Database to gets properties (Schema)
+    # Replaced notion-client with direct httpx
+    schema = {}
     try:
-        db = client.databases.retrieve(database_id=database_id)
+        db = _notion_request("GET", f"databases/{database_id}", api_key)
         schema = db.get("properties", {})
     except Exception as e:
-        print(f"DEBUG: Retrieve failed: {e}")
-        schema = {}
+        print(f"DEBUG: Retrieve database failed: {e}")
 
-    # Fallback: if retrieve() returns no properties (e.g. permission/version issue),
-    # try to fetch one page and use its properties as schema.
+    # Fallback: if properties missing, fetch one page
     if not schema:
         print("DEBUG: Schema missing in retrieve() response. Attempting fallback via query...")
         try:
-            # check if client.databases has query method, else use raw request
-            if hasattr(client.databases, "query"):
-                print("DEBUG: Using client.databases.query")
-                resp = client.databases.query(database_id=database_id, page_size=1)
-            else:
-                path = f"databases/{database_id}/query"
-                print(f"DEBUG: Using client.request(path='{path}')")
-                resp = client.request(
-                    path=path,
-                    method="POST",
-                    body={"page_size": 1},
-                )
+            resp = _notion_request("POST", f"databases/{database_id}/query", api_key, {"page_size": 1})
             results = resp.get("results", [])
-            if results:
-                schema = results[0].get("properties", {})
-                print(f"DEBUG: Inferred schema from page query. Keys: {list(schema.keys())}")
-            else:
-                print("DEBUG: Query returned no pages, cannot infer schema.")
-        except Exception:
+            schema = results[0].get("properties", {}) if results else {}
+        except Exception as e:
             traceback.print_exc()
             print("DEBUG: Fallback query failed.")
 
+    if schema:
+        print(f"DEBUG: Schema found (keys={list(schema.keys())})")
+    
     score_prop = find_property(schema, "number", PREFERRED_NAMES["score"])
     source_prop = find_property(schema, "select", PREFERRED_NAMES["source"]) or find_property(
         schema, "rich_text", PREFERRED_NAMES["source"]
@@ -167,7 +175,9 @@ def main() -> int:
         raise SystemExit("No score property found (expected number property like '评分').")
 
     since = (date.today() - timedelta(days=max(0, args.days))).isoformat() if date_prop else None
-    pages = fetch_all_pages(client, database_id, date_prop, since)
+    
+    # Use direct httpx fetch
+    pages = fetch_all_pages(api_key, database_id, date_prop, since)
 
     records: list[dict] = []
     for page in pages:

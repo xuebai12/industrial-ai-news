@@ -22,31 +22,25 @@ I18N_LABELS = {
     "zh": {
         "title": "工业 AI 每日摘要",
         "stats": "今日共筛选出 <strong>{{ count }}</strong> 条相关情报",
-        "summary_label": "一句话结论",
+        "simple_explain_label": "通俗解读",
         "tech_points_label": "核心技术",
-        "context_label": "为什么重要",
+        "application_label": "应用背景",
         "source_label": "来源",
         "link_label": "查看原文",
-        "simple_title": "你可以怎么用",
         "overview_title": "今日总览",
         "top_title": "最值得看",
-        "action_title": "行动建议",
-        "action_text": "优先阅读前 3 条，并记录可落地的工具链。",
         "footer": "Industrial AI Intelligence System",
     },
     "de": {
         "title": "Industrial AI Tageszusammenfassung",
         "stats": "Heute wurden <strong>{{ count }}</strong> relevante Berichte ausgewählt",
-        "summary_label": "Kernaussage",
+        "simple_explain_label": "Einfach Erklaert",
         "tech_points_label": "Kerntechnologie",
-        "context_label": "Warum relevant",
+        "application_label": "Anwendungskontext",
         "source_label": "Quelle",
         "link_label": "Originalartikel",
-        "simple_title": "Naechster Schritt",
         "overview_title": "Tagesueberblick",
         "top_title": "Top 3",
-        "action_title": "Empfehlung",
-        "action_text": "Zuerst die Top-3 lesen und ein umsetzbares Tool notieren.",
         "footer": "Industrial AI Intelligence System (DE)",
     },
 }
@@ -79,8 +73,6 @@ EMAIL_TEMPLATE = Template(
   .label { display: block; font-size: 12px; color: #475467; font-weight: 700; text-transform: uppercase;
            letter-spacing: 0.2px; margin-bottom: 4px; }
   .value { font-size: 14px; line-height: 1.6; color: #1f2937; }
-  .secondary { font-size: 12px; color: #667085; line-height: 1.45; margin-top: 6px; }
-  .action { background: #f8fbff; border-left: 3px solid #2d7ff9; border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
   .source { margin-top: 10px; font-size: 13px; color: #344054; }
   .source a { color: #175cd3; text-decoration: none; }
   .footer { text-align: center; padding: 16px 8px 8px; font-size: 12px; color: #98a2b3; }
@@ -101,8 +93,6 @@ EMAIL_TEMPLATE = Template(
       <li>{{ item }}</li>
       {% endfor %}
     </ul>
-    <div class="label" style="margin-top:10px;">{{ labels.action_title }}</div>
-    <p>{{ labels.action_text }}</p>
   </div>
 
   {% for article in articles %}
@@ -113,27 +103,18 @@ EMAIL_TEMPLATE = Template(
     <div class="subtle">{{ article.title_en }}</div>
 
     <div class="row">
-      <span class="label">{{ labels.summary_label }}</span>
-      <div class="value">{{ article.primary_summary }}</div>
-    </div>
-
-    {% if article.secondary_summary %}
-    <div class="secondary">{{ article.secondary_summary }}</div>
-    {% endif %}
-
-    <div class="row">
       <span class="label">{{ labels.tech_points_label }}</span>
       <div class="value">{{ article.core_tech_compact }}</div>
     </div>
 
     <div class="row">
-      <span class="label">{{ labels.context_label }}</span>
+      <span class="label">{{ labels.application_label }}</span>
       <div class="value">{{ article.context_compact }}</div>
     </div>
 
-    <div class="action">
-      <span class="label">{{ labels.simple_title }}</span>
-      <div class="value">{{ article.action_text }}</div>
+    <div class="row">
+      <span class="label">{{ labels.simple_explain_label }}</span>
+      <div class="value">{{ article.simple_explanation }}</div>
     </div>
 
     <div class="source">
@@ -190,17 +171,17 @@ def render_digest(
 
     rendered_articles = []
     for article in articles:
-        action_text = article.technician_analysis_de if persona == "technician" else article.simple_explanation
+        simple_explanation = (
+            article.technician_analysis_de if persona == "technician" else article.simple_explanation
+        )
         rendered_articles.append(
             {
                 "category_tag": article.category_tag,
                 "display_title": _clip(_pick_title(article, lang), 90),
                 "title_en": _clip(article.title_en or "", 110),
-                "primary_summary": _clip(_pick_primary_summary(article, lang), 190),
-                "secondary_summary": _clip(_pick_secondary_summary(article, lang), 130),
                 "core_tech_compact": _clip(article.core_tech_points or "N/A", 130),
                 "context_compact": _clip(article.german_context or "N/A", 140),
-                "action_text": _clip(action_text or "N/A", 150),
+                "simple_explanation": _clip(simple_explanation or "N/A", 200),
                 "source_name": article.source_name,
                 "source_url": article.source_url,
             }
@@ -237,8 +218,9 @@ def render_digest_text(articles: list[AnalyzedArticle], today: str | None = None
 
     for article in articles:
         lines.append(f"[{article.category_tag}] {_clip(article.title_zh or article.title_en, 100)}")
-        lines.append(f"- Summary: {_clip(article.summary_zh or article.summary_en or article.summary_de, 180)}")
         lines.append(f"- Tech: {_clip(article.core_tech_points or 'N/A', 120)}")
+        lines.append(f"- Application: {_clip(article.german_context or 'N/A', 140)}")
+        lines.append(f"- Explain: {_clip(article.simple_explanation or 'N/A', 180)}")
         lines.append(f"- Source: {article.source_name} | {article.source_url}")
         lines.append("")
 
@@ -315,18 +297,7 @@ def save_digest_markdown(
     for article in articles:
         lines.append(f"### [{article.category_tag}] {article.title_zh}\n")
         lines.append(f"*{article.title_en}*\n\n")
-        lines.append(f"**🇨🇳 摘要：** {article.summary_zh}\n\n")
-        if article.summary_en:
-            lines.append(f"**🇬🇧 Summary:** {article.summary_en}\n\n")
-        lines.append(f"🔬 **核心技术：** {article.core_tech_points}\n")
-        if article.german_context:
-            lines.append(f"🏭 **应用背景：** {article.german_context}\n")
-
-        lines.append(f"> 💡 **通俗解读:** {article.simple_explanation}\n")
-        if article.tool_stack:
-            lines.append(f"> - 🛠️ **涉及工具:** {article.tool_stack}\n")
-
-        lines.append(f"\n📎 来源：{article.source_name} | [点击查看原文]({article.source_url})\n")
+        lines.append(f"📎 来源：{article.source_name} | [点击查看原文]({article.source_url})\n")
         lines.append("---\n")
 
     with open(filepath, "w", encoding="utf-8") as f:

@@ -5,6 +5,8 @@
 """
 
 import logging
+import json
+import os
 import re
 
 import requests
@@ -16,6 +18,9 @@ from src.models import Article
 from config import DATA_SOURCES
 
 logger = logging.getLogger(__name__)
+OBSERVED_SOURCES = {"ABB Robotics News", "Rockwell Automation Blog"}
+OBSERVATION_STATE_PATH = os.path.join("output", "source_observation.json")
+ZERO_DISABLE_THRESHOLD = 3
 
 # User-Agent to avoid being blocked (设置 UA 防止被反爬)
 HEADERS = {
@@ -43,6 +48,41 @@ def _build_session() -> requests.Session:
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     return session
+
+
+def _load_observation_state() -> dict:
+    if not os.path.exists(OBSERVATION_STATE_PATH):
+        return {}
+    try:
+        with open(OBSERVATION_STATE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_observation_state(state: dict) -> None:
+    os.makedirs(os.path.dirname(OBSERVATION_STATE_PATH), exist_ok=True)
+    with open(OBSERVATION_STATE_PATH, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+def _is_observation_disabled(state: dict, source_name: str) -> bool:
+    info = state.get(source_name, {})
+    return bool(info.get("disabled", False))
+
+
+def _update_observation_status(state: dict, source_name: str, fetched_count: int) -> None:
+    if source_name not in OBSERVED_SOURCES:
+        return
+    info = state.get(source_name, {"zero_streak": 0, "disabled": False})
+    if fetched_count > 0:
+        info["zero_streak"] = 0
+        info["disabled"] = False
+    else:
+        info["zero_streak"] = int(info.get("zero_streak", 0)) + 1
+        if info["zero_streak"] >= ZERO_DISABLE_THRESHOLD:
+            info["disabled"] = True
+    state[source_name] = info
 
 
 def _clean_text(text: str, max_len: int = 500) -> str:
@@ -141,7 +181,6 @@ def scrape_web_sources(max_items: int = 20) -> list[Article]:
         "de:hub Smart Systems": ".news-item, .card",
         "ABB Robotics News": "article a, .news-item a, .teaser a, a[href*='/news/']",
         "Rockwell Automation Blog": "article a, .cmp-teaser a, .card a, a[href*='/blogs/']",
-        "NVIDIA Manufacturing AI Blog": "article a, .post-card a, .archive-item a, a[href*='/blog/']",
         "Bosch Stories (Manufacturing/AI)": "article a, .story-teaser a, .teaser a, a[href*='/stories/']",
     }
     
@@ -149,10 +188,18 @@ def scrape_web_sources(max_items: int = 20) -> list[Article]:
     default_selector = "article, .news-item, .card, .entry, .post"
 
     web_sources = [s for s in DATA_SOURCES if s.source_type == "web"]
+    observation_state = _load_observation_state()
 
     session = _build_session()
     try:
         for source in web_sources:
+            if source.name in OBSERVED_SOURCES and _is_observation_disabled(observation_state, source.name):
+                logger.warning(
+                    "[WEB] Skipping observed source '%s' (disabled after %s consecutive zero-result runs)",
+                    source.name,
+                    ZERO_DISABLE_THRESHOLD,
+                )
+                continue
             selector = selectors.get(source.name, default_selector)
 
             found = scrape_generic_web(
@@ -164,8 +211,10 @@ def scrape_web_sources(max_items: int = 20) -> list[Article]:
                 max_items=max_items,
                 session=session,
             )
+            _update_observation_status(observation_state, source.name, len(found))
             articles.extend(found)
     finally:
         session.close()
+        _save_observation_state(observation_state)
 
     return articles

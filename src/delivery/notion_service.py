@@ -29,6 +29,8 @@ class NotionDeliveryService:
         self.client = client
         self.database_id = database_id
         self._database_properties: dict[str, dict] | None = None
+        self._parent_key: str | None = None
+        self._parent_id: str | None = None
 
     def push_articles(self, articles: list[AnalyzedArticle], today: str) -> int:
         """
@@ -153,11 +155,8 @@ class NotionDeliveryService:
                 if start_cursor:
                     body["start_cursor"] = start_cursor
 
-                resp = self.client.request(
-                    path=f"databases/{self.database_id}/query",
-                    method="POST",
-                    body=body,
-                )
+                parent_key, parent_id = self.get_parent_target()
+                resp = self.query_entries(parent_key=parent_key, parent_id=parent_id, body=body)
                 for page in resp.get("results", []):
                     props = page.get("properties", {})
                     if url_property:
@@ -183,42 +182,14 @@ class NotionDeliveryService:
     def create_page(self, article: AnalyzedArticle, today: str) -> None:
         """Create a single Notion database entry with properties and page body."""
         schema = self.get_database_properties()
-        title_property = self.find_title_property_name(schema) or "标题"
-        url_property = self.find_url_property_name(schema) or "原文链接"
-
-        all_properties = {
-            title_property: {
-                "title": [{"text": {"content": article.title_zh or article.title_en or "Untitled"}}]
-            },
-            "类别": {
-                "select": {"name": article.category_tag or "Other"}
-            },
-            "AI 摘要": {
-                "rich_text": [{"text": {"content": (article.summary_zh or "")[:2000]}}]
-            },
-            "核心技术": {
-                "multi_select": self.parse_multi_select_tags(article.core_tech_points)
-            },
-            "来源/机构": {
-                "select": {"name": article.source_name or "Unknown"}
-            },
-            url_property: {
-                "url": article.source_url or None
-            },
-            "日期": {
-                "date": {"start": today}
-            },
-            "工具链": {
-                "rich_text": [{"text": {"content": (article.tool_stack or "")[:2000]}}]
-            },
-        }
-        properties = self.filter_existing_properties(all_properties, schema)
+        properties = self.build_properties_from_schema(article=article, today=today, schema=schema)
+        parent_key, parent_id = self.get_parent_target()
 
         children = self.build_page_body(article)
 
         try:
             self.client.pages.create(
-                parent={"database_id": self.database_id},
+                parent={parent_key: parent_id},
                 properties=properties,
                 children=children,
             )
@@ -230,9 +201,60 @@ class NotionDeliveryService:
         if self._database_properties is not None:
             return self._database_properties
 
-        db = self.client.databases.retrieve(database_id=self.database_id)
-        self._database_properties = db.get("properties", {}) or {}
+        parent_key, parent_id, schema = self._resolve_target()
+        self._parent_key = parent_key
+        self._parent_id = parent_id
+        self._database_properties = schema
         return self._database_properties
+
+    def get_parent_target(self) -> tuple[str, str]:
+        if self._parent_key and self._parent_id:
+            return self._parent_key, self._parent_id
+        self.get_database_properties()
+        if not self._parent_key or not self._parent_id:
+            return "database_id", self.database_id
+        return self._parent_key, self._parent_id
+
+    def _resolve_target(self) -> tuple[str, str, dict[str, dict]]:
+        # Prefer modern Data Source API if the supplied ID is a data_source id.
+        if hasattr(self.client, "data_sources"):
+            try:
+                ds = self.client.data_sources.retrieve(data_source_id=self.database_id)
+                ds_props = ds.get("properties", {}) or {}
+                if ds_props:
+                    return "data_source_id", self.database_id, ds_props
+            except Exception:
+                pass
+
+        # Fallback to legacy database API.
+        db = self.client.databases.retrieve(database_id=self.database_id)
+        db_props = db.get("properties", {}) or {}
+        if db_props:
+            return "database_id", self.database_id, db_props
+
+        # New Notion API may return data_sources under a database object.
+        for ds in db.get("data_sources", []) or []:
+            ds_id = str(ds.get("id", "")).strip()
+            if not ds_id:
+                continue
+            try:
+                ds_detail = self.client.data_sources.retrieve(data_source_id=ds_id)
+                ds_props = ds_detail.get("properties", {}) or {}
+                if ds_props:
+                    return "data_source_id", ds_id, ds_props
+            except Exception:
+                continue
+
+        return "database_id", self.database_id, {}
+
+    def query_entries(self, parent_key: str, parent_id: str, body: dict) -> dict:
+        if parent_key == "data_source_id" and hasattr(self.client, "data_sources"):
+            return self.client.data_sources.query(data_source_id=parent_id, **body)
+        return self.client.request(
+            path=f"databases/{parent_id}/query",
+            method="POST",
+            body=body,
+        )
 
     @staticmethod
     def find_title_property_name(schema: dict[str, dict]) -> str | None:
@@ -253,6 +275,19 @@ class NotionDeliveryService:
                 return name
         for name, meta in schema.items():
             if meta.get("type") == "url":
+                return name
+        return None
+
+    @staticmethod
+    def find_property_name(
+        schema: dict[str, dict], candidates: tuple[str, ...], expected_types: tuple[str, ...]
+    ) -> str | None:
+        for name in candidates:
+            meta = schema.get(name, {})
+            if meta.get("type") in expected_types:
+                return name
+        for name, meta in schema.items():
+            if meta.get("type") in expected_types:
                 return name
         return None
 
@@ -285,6 +320,101 @@ class NotionDeliveryService:
             if tag and len(tag) < 100:
                 tags.append({"name": tag})
         return tags[:10]
+
+    def build_properties_from_schema(
+        self, article: AnalyzedArticle, today: str, schema: dict[str, dict]
+    ) -> dict[str, dict]:
+        title_property = self.find_title_property_name(schema)
+        if not title_property:
+            raise NotionDeliveryError("SCHEMA", "No title property found in Notion schema")
+
+        title_text = article.title_zh or article.title_en or "Untitled"
+        properties: dict[str, dict] = {
+            title_property: {"title": [{"text": {"content": title_text[:2000]}}]}
+        }
+
+        category_name = self.find_property_name(
+            schema,
+            candidates=("类别", "Category", "category"),
+            expected_types=("select", "multi_select", "rich_text"),
+        )
+        if category_name:
+            kind = schema.get(category_name, {}).get("type")
+            if kind == "select":
+                properties[category_name] = {"select": {"name": article.category_tag or "Other"}}
+            elif kind == "multi_select":
+                properties[category_name] = {
+                    "multi_select": self.parse_multi_select_tags(article.category_tag)
+                }
+            elif kind == "rich_text":
+                properties[category_name] = {
+                    "rich_text": [{"text": {"content": (article.category_tag or "Other")[:2000]}}]
+                }
+
+        summary_name = self.find_property_name(
+            schema,
+            candidates=("AI 摘要", "摘要", "Summary", "summary"),
+            expected_types=("rich_text",),
+        )
+        if summary_name and (article.summary_zh or article.summary_en):
+            properties[summary_name] = {
+                "rich_text": [
+                    {"text": {"content": ((article.summary_zh or article.summary_en)[:2000])}}
+                ]
+            }
+
+        core_tech_name = self.find_property_name(
+            schema,
+            candidates=("核心技术", "Core Tech", "core_tech_points"),
+            expected_types=("multi_select", "rich_text"),
+        )
+        if core_tech_name and article.core_tech_points:
+            kind = schema.get(core_tech_name, {}).get("type")
+            if kind == "multi_select":
+                properties[core_tech_name] = {
+                    "multi_select": self.parse_multi_select_tags(article.core_tech_points)
+                }
+            elif kind == "rich_text":
+                properties[core_tech_name] = {
+                    "rich_text": [{"text": {"content": article.core_tech_points[:2000]}}]
+                }
+
+        source_name = self.find_property_name(
+            schema,
+            candidates=("来源/机构", "来源", "Source", "source_name"),
+            expected_types=("select", "rich_text"),
+        )
+        if source_name:
+            kind = schema.get(source_name, {}).get("type")
+            source_value = article.source_name or "Unknown"
+            if kind == "select":
+                properties[source_name] = {"select": {"name": source_value}}
+            elif kind == "rich_text":
+                properties[source_name] = {"rich_text": [{"text": {"content": source_value[:2000]}}]}
+
+        url_property = self.find_url_property_name(schema)
+        if url_property and article.source_url:
+            properties[url_property] = {"url": article.source_url}
+
+        date_name = self.find_property_name(
+            schema,
+            candidates=("日期", "Date", "Published Date", "publish_date"),
+            expected_types=("date",),
+        )
+        if date_name:
+            properties[date_name] = {"date": {"start": today}}
+
+        tool_stack_name = self.find_property_name(
+            schema,
+            candidates=("工具链", "Tool Stack", "tool_stack"),
+            expected_types=("rich_text",),
+        )
+        if tool_stack_name and article.tool_stack:
+            properties[tool_stack_name] = {
+                "rich_text": [{"text": {"content": article.tool_stack[:2000]}}]
+            }
+
+        return properties
 
     def build_page_body(self, article: AnalyzedArticle) -> list[dict]:
         """Build Notion page content blocks for the article."""

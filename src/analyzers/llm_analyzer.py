@@ -157,6 +157,13 @@ JSON 格式:
 只输出JSON，不要任何解释文字。
 """
 
+SIMPLE_JSON_PROMPT = (
+    'You are a JSON generator. Output ONLY a JSON object with these keys: '
+    '"category_tag", "title_zh", "title_en", "title_de", "summary_zh", "summary_en", "summary_de", '
+    '"core_tech_points", "german_context", "tool_stack", "simple_explanation", "technician_analysis_de". '
+    "No explanation, no markdown, ONLY JSON."
+)
+
 
 def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | None:
     """
@@ -195,19 +202,13 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
         f"请只输出JSON。"
     )
 
-    # --- Attempt 1: Full analysis (尝试 1: 完整分析) ---
-    data = _call_and_parse(client, SYSTEM_PROMPT, user_content)
-
-    # --- Attempt 2: Retry with ultra-simple prompt (local models) (尝试 2: 简化提示词重试 - 针对本地模型) ---
-    if data is None and IS_LOCAL:
-        logger.warning(f"[{API_PROVIDER}] Retry with simplified prompt for '{article.title[:40]}'")
-        simple_prompt = (
-            'You are a JSON generator. Output ONLY a JSON object with these keys: '
-            '"category_tag", "title_zh", "title_en", "title_de", "summary_zh", "summary_en", "summary_de", '
-            '"core_tech_points", "german_context", "tool_stack", "simple_explanation", "technician_analysis_de". '
-            'No explanation, no markdown, ONLY JSON.'
-        )
-        data = _call_and_parse(client, simple_prompt, user_content)
+    # Attempt strategy:
+    # - Local: start with simplified JSON prompt for stability
+    # - Remote/cloud: keep full prompt first
+    if IS_LOCAL:
+        data = _call_and_parse(client, SIMPLE_JSON_PROMPT, user_content)
+    else:
+        data = _call_and_parse(client, SYSTEM_PROMPT, user_content)
 
     # --- Attempt 3: Retry with strict minimal schema + shorter input (尝试 3: 最小化输入重试) ---
     if data is None and IS_LOCAL:
@@ -225,6 +226,11 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
             'Use empty string if unknown.'
         )
         data = _call_and_parse(client, minimal_prompt, minimal_user_content)
+
+    # Final retry for local model with full domain prompt (may recover richer outputs)
+    if data is None and IS_LOCAL:
+        logger.warning(f"[{API_PROVIDER}] Final retry with full prompt for '{article.title[:40]}'")
+        data = _call_and_parse(client, SYSTEM_PROMPT, user_content)
 
     if data is None:
         logger.error(f"[{API_PROVIDER}] All parse attempts failed for '{article.title[:40]}'")
