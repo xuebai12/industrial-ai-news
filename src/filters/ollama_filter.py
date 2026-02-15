@@ -25,7 +25,7 @@ from config import (
 
 logger = logging.getLogger(__name__)
 _relevance_client: OpenAI | None = None
-MIN_RELEVANT_ARTICLES = max(0, int(os.getenv("MIN_RELEVANT_ARTICLES", "5")))
+MIN_RELEVANT_ARTICLES = max(0, int(os.getenv("MIN_RELEVANT_ARTICLES", "12")))
 IS_LOCAL = API_PROVIDER == "Local_Ollama"
 MAX_CONCURRENCY = max(1, int(os.getenv("KIMI_MAX_CONCURRENCY", "1" if IS_LOCAL else "4")))
 

@@ -168,6 +168,7 @@ def render_digest(
     lang = getattr(profile, "language", "zh") if profile else "zh"
     labels = I18N_LABELS.get(lang, I18N_LABELS["zh"])
     persona = str(getattr(profile, "persona", "")).strip().lower() if profile else ""
+    no_truncate = True
 
     rendered_articles = []
     for article in articles:
@@ -179,9 +180,21 @@ def render_digest(
                 "category_tag": article.category_tag,
                 "display_title": _clip(_pick_title(article, lang), 90),
                 "title_en": _clip(article.title_en or "", 110),
-                "core_tech_compact": _clip(article.core_tech_points or "N/A", 130),
-                "context_compact": _clip(article.german_context or "N/A", 140),
-                "simple_explanation": _clip(simple_explanation or "N/A", 200),
+                "core_tech_compact": (
+                    (article.core_tech_points or "N/A").strip()
+                    if no_truncate
+                    else _clip(article.core_tech_points or "N/A", 130)
+                ),
+                "context_compact": (
+                    (article.german_context or "N/A").strip()
+                    if no_truncate
+                    else _clip(article.german_context or "N/A", 140)
+                ),
+                "simple_explanation": (
+                    (simple_explanation or "N/A").strip()
+                    if no_truncate
+                    else _clip(simple_explanation or "N/A", 200)
+                ),
                 "source_name": article.source_name,
                 "source_url": article.source_url,
             }

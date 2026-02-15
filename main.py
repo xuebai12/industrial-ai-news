@@ -11,7 +11,7 @@ import sys
 import time
 import traceback
 from dataclasses import asdict, dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from config import DATA_SOURCES, RECIPIENT_PROFILES, validate_config
@@ -72,6 +72,11 @@ class PipelineResult:
     markdown_path: str = ""     # Markdown 报告路径
     notion_pushed: int = 0      # 推送到 Notion 的数量
     failures: list[StageFailure] = field(default_factory=list)  # 失败列表
+
+
+SENT_HISTORY_FILE = "sent_history.json"
+PROFILE_ARTICLE_TARGET = max(1, int(os.getenv("PROFILE_ARTICLE_TARGET", "5")))
+PROFILE_REPEAT_COOLDOWN_DAYS = max(0, int(os.getenv("PROFILE_REPEAT_COOLDOWN_DAYS", "7")))
 
 
 def configure_logging(log_format: str) -> None:
@@ -220,6 +225,115 @@ def _emit_summary(result: PipelineResult, output_dir: str) -> None:
         logger.info("[SUMMARY] Wrote error report: %s", error_path)
 
 
+def _article_key(article: object) -> str:
+    """构建文章唯一键，用于去重和历史记录。"""
+    url = _normalize_url(getattr(article, "source_url", "") or getattr(article, "url", ""))
+    if url:
+        return f"url:{url}"
+    source = str(getattr(article, "source_name", "") or getattr(article, "source", "")).strip().lower()
+    title = str(getattr(article, "title_zh", "") or getattr(article, "title", "")).strip().lower()
+    return f"title:{source}:{title}"
+
+
+def _article_score(article: object) -> int:
+    original = getattr(article, "original", None)
+    if original is not None:
+        return int(getattr(original, "relevance_score", 0) or 0)
+    return int(getattr(article, "relevance_score", 0) or 0)
+
+
+def _load_sent_history(path: str) -> dict[str, dict[str, str]]:
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            raw = json.load(handle)
+        profiles = raw.get("profiles", {}) if isinstance(raw, dict) else {}
+        if not isinstance(profiles, dict):
+            return {}
+        return {
+            str(persona): {str(k): str(v) for k, v in entries.items()}
+            for persona, entries in profiles.items()
+            if isinstance(entries, dict)
+        }
+    except Exception:
+        return {}
+
+
+def _save_sent_history(path: str, history: dict[str, dict[str, str]]) -> None:
+    _write_json(path, {"profiles": history})
+
+
+def _is_recent(
+    history: dict[str, dict[str, str]], persona: str, key: str, today: date, cooldown_days: int
+) -> bool:
+    persona_history = history.get(persona, {})
+    sent_on = persona_history.get(key, "")
+    if not sent_on:
+        return False
+    try:
+        sent_date = date.fromisoformat(sent_on)
+    except ValueError:
+        return False
+    return sent_date >= (today - timedelta(days=cooldown_days))
+
+
+def _select_articles_for_profile(
+    analyzed: list,
+    persona: str,
+    history: dict[str, dict[str, str]],
+    today: date,
+    target_count: int,
+    cooldown_days: int,
+    globally_used: set[str],
+) -> list:
+    def primary_match(item: object) -> bool:
+        personas = list(getattr(item, "target_personas", []) or [])
+        return persona in personas or (not personas and persona == "student")
+
+    primary = [a for a in analyzed if primary_match(a)]
+    secondary = [a for a in analyzed if not primary_match(a)]
+    primary.sort(key=_article_score, reverse=True)
+    secondary.sort(key=_article_score, reverse=True)
+
+    selected: list = []
+    selected_keys: set[str] = set()
+
+    def append_from(pool: list, *, allow_recent: bool, allow_global_dup: bool) -> None:
+        for item in pool:
+            if len(selected) >= target_count:
+                return
+            key = _article_key(item)
+            if key in selected_keys:
+                continue
+            if (not allow_global_dup) and key in globally_used:
+                continue
+            if (not allow_recent) and _is_recent(history, persona, key, today, cooldown_days):
+                continue
+            selected.append(item)
+            selected_keys.add(key)
+
+    # 优先级: 主画像且非近期重复 -> 主画像允许近期重复 -> 次画像非近期 -> 次画像允许近期
+    append_from(primary, allow_recent=False, allow_global_dup=False)
+    append_from(primary, allow_recent=True, allow_global_dup=False)
+    append_from(secondary, allow_recent=False, allow_global_dup=False)
+    append_from(secondary, allow_recent=True, allow_global_dup=False)
+    append_from(primary, allow_recent=True, allow_global_dup=True)
+    append_from(secondary, allow_recent=True, allow_global_dup=True)
+
+    for key in selected_keys:
+        globally_used.add(key)
+    return selected
+
+
+def _record_sent(
+    history: dict[str, dict[str, str]], persona: str, articles: list, today_iso: str
+) -> None:
+    persona_history = history.setdefault(persona, {})
+    for item in articles:
+        persona_history[_article_key(item)] = today_iso
+
+
 def run_pipeline(args: argparse.Namespace) -> PipelineResult:
     """
     执行主流水线逻辑 (Execute Main Pipeline Logic)
@@ -233,7 +347,8 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
     6. Deliver (交付)
     """
     os.makedirs(args.output_dir, exist_ok=True)
-    today = date.today().strftime("%Y-%m-%d")
+    today_obj = date.today()
+    today = today_obj.strftime("%Y-%m-%d")
     run_id = f"{today}-{int(time.time())}"
     started = time.perf_counter()
 
@@ -370,33 +485,54 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
             logger.info("[DELIVERY] Dry run output printed")
         else:
             if args.output in ("email", "both"):
+                history_path = os.path.join(args.output_dir, SENT_HISTORY_FILE)
+                sent_history = _load_sent_history(history_path)
+                used_today_keys: set[str] = set()
+
                 # Multi-channel delivery based on profiles
                 for profile in RECIPIENT_PROFILES:
                     if profile.delivery_channel not in ("email", "both"):
                         continue
-                        
-                    # Filter articles for this persona
-                    # Logic: Include if article is explicitly tagged for this persona,
-                    # OR if article has no tags and this is the default "student" persona.
-                    profile_articles = [
-                        a for a in analyzed 
-                        if profile.persona in (a.target_personas or [])
-                        or (not a.target_personas and profile.persona == "student")
-                    ]
-                    
+
+                    profile_articles = _select_articles_for_profile(
+                        analyzed=analyzed,
+                        persona=profile.persona,
+                        history=sent_history,
+                        today=today_obj,
+                        target_count=PROFILE_ARTICLE_TARGET,
+                        cooldown_days=PROFILE_REPEAT_COOLDOWN_DAYS,
+                        globally_used=used_today_keys,
+                    )
+
                     if not profile_articles:
                         logger.info(f"[DELIVERY] No articles for profile '{profile.name}'")
                         continue
-                        
-                    logger.info(f"[DELIVERY] Sending {len(profile_articles)} articles to '{profile.name}'")
+
+                    if len(profile_articles) < PROFILE_ARTICLE_TARGET:
+                        logger.warning(
+                            "[DELIVERY] Profile '%s' has %s/%s articles after de-dup & cooldown",
+                            profile.name,
+                            len(profile_articles),
+                            PROFILE_ARTICLE_TARGET,
+                        )
+                    logger.info(
+                        "[DELIVERY] Sending %s articles to '%s' (target=%s, cooldown=%s days)",
+                        len(profile_articles),
+                        profile.name,
+                        PROFILE_ARTICLE_TARGET,
+                        PROFILE_REPEAT_COOLDOWN_DAYS,
+                    )
                     success = send_email(profile_articles, today, profile=profile)
-                    
+
+                    if success:
+                        _record_sent(sent_history, profile.persona, profile_articles, today)
                     if args.strict and not success:
                          logger.error(f"[DELIVERY] Failed to send email to '{profile.name}'")
                          # In strict mode, maybe we should raise? But let's verify other profiles first or fail hard.
                          # User requested "fail run on any critical stage error"
                          raise RuntimeError(f"Email delivery failed for profile {profile.name}")
-                
+
+                _save_sent_history(history_path, sent_history)
                 result.email_sent = True # Mark as sent if we got here (individual failures raised if strict)
 
             if args.output in ("markdown", "both"):
