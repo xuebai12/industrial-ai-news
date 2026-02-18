@@ -6,6 +6,7 @@
 
 import logging
 import smtplib
+import re
 from datetime import date
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -19,6 +20,21 @@ logger = logging.getLogger(__name__)
 
 
 I18N_LABELS = {
+    "en": {
+        "title": "Industrial AI Daily Digest",
+        "stats": "Today we selected <strong>{{ count }}</strong> relevant updates",
+        "simple_explain_label": "Plain-English Takeaway",
+        "tech_points_label": "Core Technology",
+        "application_label": "Application Context",
+        "source_label": "Source",
+        "link_label": "Read Original",
+        "overview_title": "Today's Overview",
+        "top_title": "Top Picks",
+        "no_articles": "No articles today.",
+        "date_suffix": "Industrial AI & Simulation",
+        "subject_suffix": "Industrial AI Digest",
+        "footer": "Industrial AI Intelligence System",
+    },
     "zh": {
         "title": "工业 AI 每日摘要",
         "stats": "今日共筛选出 <strong>{{ count }}</strong> 条相关情报",
@@ -29,6 +45,9 @@ I18N_LABELS = {
         "link_label": "查看原文",
         "overview_title": "今日总览",
         "top_title": "最值得看",
+        "no_articles": "今日无文章。",
+        "date_suffix": "工业 AI 与仿真",
+        "subject_suffix": "工业 AI 每日摘要",
         "footer": "Industrial AI Intelligence System",
     },
     "de": {
@@ -41,6 +60,9 @@ I18N_LABELS = {
         "link_label": "Originalartikel",
         "overview_title": "Tagesueberblick",
         "top_title": "Top 3",
+        "no_articles": "Heute keine Artikel.",
+        "date_suffix": "Industrial AI und Simulation",
+        "subject_suffix": "Industrial AI Tageszusammenfassung",
         "footer": "Industrial AI Intelligence System (DE)",
     },
 }
@@ -81,7 +103,7 @@ EMAIL_TEMPLATE = Template(
 <body>
   <div class="header">
     <h1>{{ labels.title }}</h1>
-    <div class="date">{{ today }} | Industrial AI & Simulation</div>
+    <div class="date">{{ today }} | {{ labels.date_suffix }}</div>
   </div>
 
   <div class="overview">
@@ -100,7 +122,9 @@ EMAIL_TEMPLATE = Template(
     <span class="category">{{ article.category_tag }}</span>
 
     <h3>{{ article.display_title }}</h3>
+    {% if article.subtitle %}
     <div class="subtle">{{ article.title_en }}</div>
+    {% endif %}
 
     <div class="row">
       <span class="label">{{ labels.tech_points_label }}</span>
@@ -141,8 +165,10 @@ def _clip(text: str, limit: int) -> str:
 
 
 def _pick_title(article: AnalyzedArticle, lang: str) -> str:
+    if lang == "en":
+        return article.title_en or article.title_zh or article.title_de
     if lang == "de":
-        return article.title_de or article.title_en or article.title_zh
+        return article.title_de or "Deutscher Titel nicht verfügbar"
     return article.title_zh or article.title_en or article.title_de
 
 
@@ -158,6 +184,36 @@ def _pick_secondary_summary(article: AnalyzedArticle, lang: str) -> str:
     return article.summary_en if article.summary_en != article.summary_zh else ""
 
 
+def _pick_explanation(article: AnalyzedArticle, persona: str) -> str:
+    """Select persona-specific explanation text with stable language preference."""
+    if persona == "technician":
+        return (
+            article.technician_analysis_de
+            or article.summary_de
+            or "Keine deutschsprachige Analyse verfügbar."
+        ).strip()
+    if persona == "student":
+        # Student digest should stay in English regardless of profile language.
+        return (article.summary_en or article.simple_explanation or "N/A").strip()
+    return (article.simple_explanation or article.summary_en or "N/A").strip()
+
+
+def _localize_context_for_technician(text: str) -> str:
+    """Map common structured English labels to German for technician digest."""
+    value = (text or "").strip()
+    if not value:
+        return "Kein Anwendungskontext verfügbar."
+    replacements = {
+        r"\bRelevance:\s*": "Relevanz: ",
+        r"\bIndustry Sectors:\s*": "Industriebereiche: ",
+        r"\bRegulatory Aspects:\s*": "Regulatorische Aspekte: ",
+        r"\bResearch Institutions:\s*": "Forschungseinrichtungen: ",
+    }
+    for pattern, target in replacements.items():
+        value = re.sub(pattern, target, value)
+    return value
+
+
 def render_digest(
     articles: list[AnalyzedArticle], today: str | None = None, profile: object | None = None
 ) -> str:
@@ -165,35 +221,51 @@ def render_digest(
     if today is None:
         today = date.today().strftime("%Y-%m-%d")
 
-    lang = getattr(profile, "language", "zh") if profile else "zh"
-    labels = I18N_LABELS.get(lang, I18N_LABELS["zh"])
     persona = str(getattr(profile, "persona", "")).strip().lower() if profile else ""
+    base_lang = getattr(profile, "language", "zh") if profile else "zh"
+    lang = "en" if persona == "student" else base_lang
+    labels = I18N_LABELS.get(lang, I18N_LABELS["zh"])
     no_truncate = True
 
     rendered_articles = []
     for article in articles:
-        simple_explanation = (
-            article.technician_analysis_de if persona == "technician" else article.simple_explanation
-        )
+        simple_explanation = _pick_explanation(article, persona)
+        display_title_raw = (_pick_title(article, lang) or "").strip()
+        title_en_raw = (article.title_en or "").strip()
+        subtitle = ""
+        if (
+            persona != "technician"
+            and title_en_raw
+            and title_en_raw.casefold() != display_title_raw.casefold()
+        ):
+            subtitle = _clip(title_en_raw, 200)
+        context_text = (article.german_context or "").strip() or "N/A"
+        if persona == "technician":
+            context_text = _localize_context_for_technician(context_text)
+        core_text = (article.core_tech_points or "").strip() or "N/A"
+        if persona == "technician" and core_text == "N/A":
+            core_text = "Keine technischen Kerndetails verfügbar."
+
         rendered_articles.append(
             {
                 "category_tag": article.category_tag,
-                "display_title": _clip(_pick_title(article, lang), 90),
-                "title_en": _clip(article.title_en or "", 110),
+                "display_title": _clip(display_title_raw, 200),
+                "title_en": subtitle,
+                "subtitle": subtitle,
                 "core_tech_compact": (
-                    (article.core_tech_points or "N/A").strip()
+                    core_text
                     if no_truncate
-                    else _clip(article.core_tech_points or "N/A", 130)
+                    else _clip(core_text, 500)
                 ),
                 "context_compact": (
-                    (article.german_context or "N/A").strip()
+                    context_text
                     if no_truncate
-                    else _clip(article.german_context or "N/A", 140)
+                    else _clip(context_text, 600)
                 ),
                 "simple_explanation": (
                     (simple_explanation or "N/A").strip()
                     if no_truncate
-                    else _clip(simple_explanation or "N/A", 200)
+                    else _clip(simple_explanation or "N/A", 1000)
                 ),
                 "source_name": article.source_name,
                 "source_url": article.source_url,
@@ -202,7 +274,7 @@ def render_digest(
 
     top_articles = [f"{i + 1}. {item['display_title']}" for i, item in enumerate(rendered_articles[:3])]
     if not top_articles:
-        top_articles = ["No articles today."]
+        top_articles = [labels.get("no_articles", "No articles today.")]
 
     return EMAIL_TEMPLATE.render(
         today=today,
@@ -213,28 +285,68 @@ def render_digest(
     )
 
 
-def render_digest_text(articles: list[AnalyzedArticle], today: str | None = None) -> str:
+def render_digest_text(
+    articles: list[AnalyzedArticle], today: str | None = None, profile: object | None = None
+) -> str:
     """Render the daily digest as plain text (渲染纯文本摘要 - 用于 dry-run 或邮件备选部分)."""
     if today is None:
         today = date.today().strftime("%Y-%m-%d")
+    persona = str(getattr(profile, "persona", "")).strip().lower() if profile else ""
+    base_lang = getattr(profile, "language", "zh") if profile else "zh"
+    lang = "en" if persona == "student" else base_lang
+    if persona == "technician":
+        header = "[Industrial AI Tageszusammenfassung]"
+        count_label = "Artikel"
+        top_label = "Top 3"
+        details_label = "Details"
+        tech_label = "Kerntechnologie"
+        app_label = "Anwendung"
+        explain_label = "Einfache Erklaerung"
+        source_label = "Quelle"
+    else:
+        header = "[Industrial AI Digest]"
+        count_label = "Articles"
+        top_label = "Top 3"
+        details_label = "Details"
+        tech_label = "Tech"
+        app_label = "Application"
+        explain_label = "Explain"
+        source_label = "Source"
 
     lines = [
-        f"[Industrial AI Digest] {today}",
-        f"Articles: {len(articles)}",
-        "Top 3:",
+        f"{header} {today}",
+        f"{count_label}: {len(articles)}",
+        f"{top_label}:",
     ]
 
     for idx, article in enumerate(articles[:3], start=1):
-        lines.append(f"{idx}. {_clip(article.title_zh or article.title_en, 100)}")
+        if persona == "student":
+            top_title = article.title_en or article.title_zh or "N/A"
+        elif persona == "technician":
+            top_title = article.title_de or "Deutscher Titel nicht verfügbar"
+        elif lang == "de":
+            top_title = article.title_de or article.title_zh or article.title_en or "N/A"
+        else:
+            top_title = article.title_zh or article.title_en or article.title_de or "N/A"
+        lines.append(f"{idx}. {_clip(top_title, 200)}")
 
-    lines.append("\nDetails:\n")
+    lines.append(f"\n{details_label}:\n")
 
     for article in articles:
-        lines.append(f"[{article.category_tag}] {_clip(article.title_zh or article.title_en, 100)}")
-        lines.append(f"- Tech: {_clip(article.core_tech_points or 'N/A', 120)}")
-        lines.append(f"- Application: {_clip(article.german_context or 'N/A', 140)}")
-        lines.append(f"- Explain: {_clip(article.simple_explanation or 'N/A', 180)}")
-        lines.append(f"- Source: {article.source_name} | {article.source_url}")
+        if persona == "student":
+            title = article.title_en or article.title_zh or "N/A"
+        elif persona == "technician":
+            title = article.title_de or "Deutscher Titel nicht verfügbar"
+        else:
+            title = article.title_zh or article.title_en or "N/A"
+        application = article.german_context or "N/A"
+        if persona == "technician":
+            application = _localize_context_for_technician(application)
+        lines.append(f"[{article.category_tag}] {_clip(title, 200)}")
+        lines.append(f"- {tech_label}: {_clip(article.core_tech_points or 'N/A', 500)}")
+        lines.append(f"- {app_label}: {_clip(application, 600)}")
+        lines.append(f"- {explain_label}: {_clip(_pick_explanation(article, persona), 1000)}")
+        lines.append(f"- {source_label}: {article.source_name} | {article.source_url}")
         lines.append("")
 
     return "\n".join(lines)
@@ -252,23 +364,28 @@ def send_email(articles: list[AnalyzedArticle], today: str | None = None, profil
     html_content = render_digest(articles, today, profile)
 
     msg = MIMEMultipart("alternative")
+    lang = getattr(profile, "language", "zh") if profile else "zh"
     if profile and hasattr(profile, "persona"):
         persona = str(getattr(profile, "persona", "")).strip().lower()
         if persona == "technician":
-            subject_prefix = "[Technician] "
+            subject_prefix = "[Techniker] "
+            lang = "de"
         elif persona == "student":
             subject_prefix = "[Student] "
+            lang = "en"
         else:
             subject_prefix = ""
     else:
+        persona = ""
         subject_prefix = ""
-    msg["Subject"] = f"{subject_prefix}📅 {today} Industrial AI Digest ({len(articles)})"
+    labels = I18N_LABELS.get(lang, I18N_LABELS["zh"])
+    msg["Subject"] = f"{subject_prefix}📅 {today} {labels['subject_suffix']} ({len(articles)})"
     msg["From"] = EMAIL_FROM or SMTP_USER
 
     recipient = profile.email if profile and hasattr(profile, "email") else EMAIL_TO
     msg["To"] = recipient
 
-    text_content = render_digest_text(articles, today)
+    text_content = render_digest_text(articles, today, profile)
     msg.attach(MIMEText(text_content, "plain", "utf-8"))
     msg.attach(MIMEText(html_content, "html", "utf-8"))
 

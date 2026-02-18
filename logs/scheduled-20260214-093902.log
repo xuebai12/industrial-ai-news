@@ -1,4 +1,0 @@
-dashboard_json=output/ops-dashboard.json
-dashboard_md=output/ops-dashboard.md
-alerts=2
-alert_email_sent=True

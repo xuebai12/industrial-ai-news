@@ -6,19 +6,18 @@
 python main.py --output email --skip-dynamic --skip-llm-filter --output-dir output
 ```
 
-## Stable scheduled run
+## Manual run (scheduled disabled)
 
 ```bash
-./run_scheduled_dispatch.sh
+./.venv/bin/python main.py --output both --output-dir output --log-format json
+./.venv/bin/python ops_dashboard.py --output-dir output --days 7
 ```
 
-This entrypoint enforces:
+Current mode:
 
-- fixed `cwd` (`/Users/baixue/news`)
-- fixed runtime (`.venv/bin/python`)
-- single-run lock (prevents overlapping jobs)
-- unified log output (`logs/scheduled-*.log`)
-- post-run ops dashboard + threshold alerts
+- no scheduler entrypoint is used
+- dispatch is triggered manually only
+- `run_scheduled_dispatch.sh` now exits with a disabled notice
 
 For strict mode in automation:
 

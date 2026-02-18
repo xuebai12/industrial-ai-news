@@ -77,6 +77,15 @@ class PipelineResult:
 SENT_HISTORY_FILE = "sent_history.json"
 PROFILE_ARTICLE_TARGET = max(1, int(os.getenv("PROFILE_ARTICLE_TARGET", "5")))
 PROFILE_REPEAT_COOLDOWN_DAYS = max(0, int(os.getenv("PROFILE_REPEAT_COOLDOWN_DAYS", "7")))
+ANALYSIS_FALLBACK_MARKERS = (
+    "analysis fallback",
+    "kein auswertbares modell-ergebnis verfügbar",
+    "模型未返回可解析的结构化结果",
+    "local model analysis failed",
+    "model analysis temporarily unavailable",
+    "auto fallback summary from source snippet",
+    "__analysis_fallback__",
+)
 
 
 def configure_logging(log_format: str) -> None:
@@ -190,6 +199,31 @@ def _dedupe_articles(articles: list) -> list:
         seen.add(key)
         deduped.append(article)
     return deduped
+
+
+def _is_fallback_analysis(article) -> bool:
+    fields = (
+        getattr(article, "core_tech_points", "") or "",
+        getattr(article, "simple_explanation", "") or "",
+        getattr(article, "technician_analysis_de", "") or "",
+        getattr(article, "summary_en", "") or "",
+        getattr(article, "tool_stack", "") or "",
+    )
+    blob = " ".join(fields).strip().lower()
+    if not blob:
+        return True
+    return any(marker in blob for marker in ANALYSIS_FALLBACK_MARKERS)
+
+
+def _drop_fallback_analysis(articles: list) -> tuple[list, int]:
+    kept = []
+    dropped = 0
+    for item in articles:
+        if _is_fallback_analysis(item):
+            dropped += 1
+            continue
+        kept.append(item)
+    return kept, dropped
 
 
 def _append_failure(
@@ -465,10 +499,26 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         result.duration_seconds = round(time.perf_counter() - started, 3)
         return result
 
-    result.analyzed_count = len(analyzed)
-    if not analyzed:
+    cleaned_analyzed, dropped_fallback = _drop_fallback_analysis(analyzed)
+    if dropped_fallback:
+        logger.warning(
+            "[ANALYZE] Dropped %s fallback articles due to invalid LLM output",
+            dropped_fallback,
+        )
+
+    # Graceful degradation: if all items are fallback analyses, keep them so
+    # downstream delivery can still produce a useful digest instead of hard stop.
+    if not cleaned_analyzed and analyzed:
+        cleaned_analyzed = analyzed
+        logger.warning(
+            "[ANALYZE] All %s analyses were fallback; continuing with fallback content",
+            len(analyzed),
+        )
+
+    result.analyzed_count = len(cleaned_analyzed)
+    if not cleaned_analyzed:
         result.success = not args.strict
-        result.exit_reason = "analysis produced no results"
+        result.exit_reason = "analysis produced no usable results"
         result.duration_seconds = round(time.perf_counter() - started, 3)
         return result
 
@@ -481,7 +531,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         )
 
         if args.dry_run:
-            print("\n" + render_digest_text(analyzed, today))
+            print("\n" + render_digest_text(cleaned_analyzed, today))
             logger.info("[DELIVERY] Dry run output printed")
         else:
             if args.output in ("email", "both"):
@@ -495,7 +545,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
                         continue
 
                     profile_articles = _select_articles_for_profile(
-                        analyzed=analyzed,
+                        analyzed=cleaned_analyzed,
                         persona=profile.persona,
                         history=sent_history,
                         today=today_obj,
@@ -537,14 +587,14 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
 
             if args.output in ("markdown", "both"):
                 result.markdown_path = save_digest_markdown(
-                    analyzed, today=today, output_dir=args.output_dir
+                    cleaned_analyzed, today=today, output_dir=args.output_dir
                 )
                 logger.info("[DELIVERY] Markdown digest saved: %s", result.markdown_path)
 
             if args.output in ("notion", "both"):
                 from src.delivery.notion_sender import push_to_notion
 
-                result.notion_pushed = push_to_notion(analyzed, today)
+                result.notion_pushed = push_to_notion(cleaned_analyzed, today)
                 logger.info("[DELIVERY] Notion pushed: %s", result.notion_pushed)
     except Exception as exc:
         _append_failure(result, "delivery", "DELIVERY", str(exc))

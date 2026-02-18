@@ -432,14 +432,6 @@ DATA_SOURCES: list[DataSource] = [
         priority=2,
     ),
     DataSource(
-        name="NVIDIA Manufacturing AI Blog",
-        url="https://blogs.nvidia.com/blog/category/manufacturing/",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
         name="Bosch Stories (Manufacturing/AI)",
         url="https://www.bosch.com/stories/",
         source_type="web",
@@ -450,14 +442,6 @@ DATA_SOURCES: list[DataSource] = [
     DataSource(
         name="AWS Supply Chain Blog",
         url="https://aws.amazon.com/blogs/supply-chain/",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="Dynamics 365 Supply Chain",
-        url="https://learn.microsoft.com/en-us/dynamics365/release-plan/2025wave2/supply-chain/",
         source_type="web",
         language="en",
         category="industry",
@@ -488,36 +472,12 @@ DATA_SOURCES: list[DataSource] = [
         priority=2,
     ),
     DataSource(
-        name="NVIDIA Omniverse Blog",
-        url="https://blogs.nvidia.com/blog/category/omniverse/",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
         name="Google Cloud Manufacturing Blog",
         url="https://cloud.google.com/blog/topics/manufacturing",
         source_type="web",
         language="en",
         category="industry",
         priority=2,
-    ),
-    DataSource(
-        name="Plattform I4.0 Use Cases",
-        url="https://www.plattform-i40.de/IP/Redaktion/EN/Dossier/use-cases.html",
-        source_type="web",
-        language="en",
-        category="policy",
-        priority=2,
-    ),
-    DataSource(
-        name="Crunchbase AI Startups",
-        url="https://www.crunchbase.com/hub/artificial-intelligence-startups",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=1,
     ),
     DataSource(
         name="StartUs Insights Manufacturing",
@@ -543,23 +503,6 @@ DATA_SOURCES: list[DataSource] = [
         category="research",
         priority=1,
     ),
-    DataSource(
-        name="Manufacturing.net",
-        url="https://www.manufacturing.net/",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="Medium Industrial Data Science",
-        url="https://medium.com/tag/industrial-data-science",
-        source_type="web",
-        language="en",
-        category="research",
-        priority=1,
-    ),
-
     # --- 3. Global Academic & Dynamic (Mixed) (全球学术与动态源) ---
     DataSource(
         name="arXiv cs.AI (Simulation/RL)",

@@ -7,7 +7,10 @@ import json
 import logging
 import os
 import re
+import ast
+import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
 from openai import OpenAI
 
 from src.models import Article, AnalyzedArticle
@@ -20,9 +23,65 @@ _client: OpenAI | None = None
 
 # Local models need more tokens, but should run with low randomness for stable JSON.
 IS_LOCAL = API_PROVIDER == "Local_Ollama"
-MAX_TOKENS = int(os.getenv("KIMI_MAX_TOKENS", "2600" if IS_LOCAL else "800"))
-REQUEST_TIMEOUT_SECONDS = float(os.getenv("KIMI_TIMEOUT_SECONDS", "45")) # Kept env var name for compatibility or should query user? Let's use generic default
+MAX_TOKENS = int(os.getenv("KIMI_MAX_TOKENS", "4000" if IS_LOCAL else "2000"))
+REQUEST_TIMEOUT_SECONDS = float(os.getenv("KIMI_TIMEOUT_SECONDS", "120" if IS_LOCAL else "45"))
 MAX_CONCURRENCY = max(1, int(os.getenv("KIMI_MAX_CONCURRENCY", "1" if IS_LOCAL else "4")))
+MAX_ANALYSIS_RETRIES = max(1, int(os.getenv("KIMI_ANALYSIS_RETRIES", "2")))
+OPENAI_MAX_RETRIES = max(0, int(os.getenv("KIMI_OPENAI_MAX_RETRIES", "0" if IS_LOCAL else "2")))
+FALLBACK_TOOLSTACK_MARKER = "__analysis_fallback__"
+REQUIRED_KEYS = (
+    "category_tag",
+    "title_zh",
+    "title_en",
+    "title_de",
+    "summary_zh",
+    "summary_en",
+    "summary_de",
+    "core_tech_points",
+    "german_context",
+    "tool_stack",
+    "simple_explanation",
+    "technician_analysis_de",
+)
+
+
+STRUCTURED_KEY_LABELS = {
+    "relevance": "Relevance",
+    "industry_sectors": "Industry Sectors",
+    "regulatory_aspects": "Regulatory Aspects",
+    "research_institutions": "Research Institutions",
+}
+
+
+def _humanize_key(key: str) -> str:
+    raw = (key or "").strip()
+    if not raw:
+        return "Field"
+    if raw in STRUCTURED_KEY_LABELS:
+        return STRUCTURED_KEY_LABELS[raw]
+    words = raw.replace("-", "_").split("_")
+    return " ".join(w.capitalize() for w in words if w) or raw
+
+
+def _format_structured_value(value: object) -> str:
+    """Format dict/list payloads into readable plain text instead of raw JSON."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        parts: list[str] = []
+        for key, sub_value in value.items():
+            rendered = _format_structured_value(sub_value)
+            if rendered:
+                parts.append(f"{_humanize_key(str(key))}: {rendered}")
+        return " | ".join(parts)
+    if isinstance(value, (list, tuple, set)):
+        items = [_format_structured_value(item) for item in value]
+        items = [item for item in items if item]
+        return "; ".join(items)
+    return str(value).strip()
+
 
 def _get_client() -> OpenAI:
     """Lazy-init API client (延迟初始化 API 客户端)."""
@@ -35,8 +94,28 @@ def _get_client() -> OpenAI:
         _client = OpenAI(
             api_key=LLM_API_KEY,
             base_url=LLM_BASE_URL,
+            max_retries=OPENAI_MAX_RETRIES,
         )
     return _client
+
+
+def _is_local_endpoint_reachable() -> bool:
+    """
+    Fast connectivity probe for local API endpoints.
+    本地端点连通性快速探测，避免整批文章反复重试。
+    """
+    parsed = urlparse(LLM_BASE_URL or "")
+    host = parsed.hostname
+    port = parsed.port
+    if not host:
+        return True
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+    try:
+        with socket.create_connection((host, int(port)), timeout=1.5):
+            return True
+    except OSError:
+        return False
 
 
 def _extract_json(text: str) -> dict | None:
@@ -65,7 +144,13 @@ def _extract_json(text: str) -> dict | None:
             try:
                 return json.loads(repaired)
             except json.JSONDecodeError:
-                return None
+                # Python-literal fallback for quasi-JSON (single quotes, True/False/None)
+                try:
+                    py_obj = ast.literal_eval(repaired)
+                    if isinstance(py_obj, dict):
+                        return py_obj
+                except Exception:
+                    return None
 
     # Strategy 1: Try direct parse (ideal case)
     parsed = _try_parse(raw)
@@ -117,7 +202,162 @@ def _extract_json(text: str) -> dict | None:
             if parsed is not None:
                 return parsed
 
+    # Strategy 4: salvage key-value pairs from malformed JSON-ish output
+    salvaged = _salvage_json_like(raw)
+    if salvaged:
+        return salvaged
+
     return None
+
+
+def _salvage_json_like(text: str) -> dict | None:
+    """
+    Best-effort extraction from malformed JSON-like text.
+    从不完全合法的 JSON 文本中按 key 提取字段。
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return None
+
+    # Remove common markdown fences to improve regex extraction.
+    raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"\s*```$", "", raw)
+
+    data: dict[str, str] = {}
+    for key in REQUIRED_KEYS:
+        # Match "key": "value" with escaped quotes/newlines tolerance
+        m = re.search(
+            rf'"{re.escape(key)}"\s*:\s*"((?:\\.|[^"\\])*)"',
+            raw,
+            re.DOTALL,
+        )
+        if m:
+            val = m.group(1)
+            # Decode escaped sequences only when present; avoid corrupting normal UTF-8 text.
+            if "\\" in val:
+                try:
+                    val = json.loads(f"\"{val}\"")
+                except Exception:
+                    pass
+            data[key] = val.strip()
+            continue
+
+        # Match unquoted scalar until comma/newline/brace
+        m2 = re.search(
+            rf'"{re.escape(key)}"\s*:\s*([^,\n}}]+)',
+            raw,
+            re.DOTALL,
+        )
+        if m2:
+            data[key] = m2.group(1).strip().strip('"').strip("'")
+
+    # Need a minimum useful subset to treat as recoverable.
+    min_keys = {"category_tag", "title_en", "summary_en"}
+    if min_keys.issubset(set(k for k, v in data.items() if v)):
+        return data
+    return None
+
+
+def _normalize_analyzed_payload(data: dict, article: Article) -> dict:
+    """
+    Fill missing fields and strip noise from parsed payload.
+    """
+    normalized = dict(data or {})
+    normalized.setdefault("category_tag", article.category or "Research")
+    normalized.setdefault("title_zh", article.title)
+    normalized.setdefault("title_en", article.title)
+    normalized.setdefault("title_de", normalized.get("title_en") or article.title)
+    normalized.setdefault("summary_zh", "")
+    normalized.setdefault("summary_en", "")
+    normalized.setdefault("summary_de", "")
+    normalized.setdefault("core_tech_points", "")
+    normalized.setdefault("german_context", article.source or "")
+    normalized.setdefault("tool_stack", "")
+    normalized.setdefault("simple_explanation", "")
+    normalized.setdefault("technician_analysis_de", "")
+    # Fallback to summary or snippet if explanation is missing
+    if not normalized.get("simple_explanation"):
+        summary = normalized.get("summary_zh") or normalized.get("summary_en") or ""
+        normalized["simple_explanation"] = f"【AI 自动生成】{summary}" if summary else f"原文摘要: {article.content_snippet[:200]}..."
+
+    if not normalized.get("technician_analysis_de"):
+        summary_de = normalized.get("summary_de") or normalized.get("summary_en") or ""
+        normalized["technician_analysis_de"] = f"[AI Generated] {summary_de}" if summary_de else f"Auszug: {article.content_snippet[:200]}..."
+
+    return normalized
+
+
+def _extract_text_from_message_content(content: object) -> str:
+    """
+    Normalize OpenAI-compatible message.content to plain text.
+    兼容 str / list[parts] / dict 的 message.content 输出结构。
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        # Some providers may already return a JSON object-like dict
+        return json.dumps(content, ensure_ascii=False)
+    if isinstance(content, list):
+        chunks: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                chunks.append(item)
+                continue
+            if isinstance(item, dict):
+                if isinstance(item.get("text"), str):
+                    chunks.append(item["text"])
+                    continue
+                # For unknown part shape, serialize to preserve information.
+                chunks.append(json.dumps(item, ensure_ascii=False))
+                continue
+            chunks.append(str(item))
+        return "\n".join(part for part in chunks if part).strip()
+    return str(content)
+
+
+def _derive_safe_fallback(article: Article) -> AnalyzedArticle:
+    """
+    Build a deterministic, non-empty fallback when model output is unavailable.
+    在模型失败时构建可读的保底结果，避免 N/A 和空字段。
+    """
+    snippet = (article.content_snippet or "").strip()
+    compact_snippet = re.sub(r"\s+", " ", snippet)[:240]
+    summary_zh = "模型分析暂不可用，以下为基于原文标题与摘要的快速整理。"
+    summary_en = "Model analysis temporarily unavailable; generated from source title and snippet."
+    summary_de = "Modellanalyse vorübergehend nicht verfügbar; Zusammenfassung aus Titel und Textauszug."
+    context = article.source or "Source article"
+
+    simple_explain = (
+        f"原文主题：{article.title}。"
+        f"{' 摘要：' + compact_snippet if compact_snippet else ''}"
+        " 建议稍后重跑以生成完整 AI 分析。"
+    )
+    technician_explain = (
+        f"Thema: {article.title}. "
+        f"{'Auszug: ' + compact_snippet + '. ' if compact_snippet else ''}"
+        "Bitte Lauf erneut starten, um vollständige Techniker-Analyse zu erzeugen."
+    )
+
+    return AnalyzedArticle(
+        category_tag=article.category or "Research",
+        title_zh=article.title,
+        title_en=article.title,
+        title_de=article.title,
+        core_tech_points="Auto fallback summary from source snippet.",
+        german_context=context,
+        source_name=article.source,
+        source_url=article.url,
+        summary_zh=summary_zh,
+        summary_en=summary_en,
+        summary_de=summary_de,
+        tool_stack=FALLBACK_TOOLSTACK_MARKER,
+        simple_explanation=simple_explain,
+        technician_analysis_de=technician_explain,
+        original=article,
+        target_personas=article.target_personas,
+    )
 
 
 # 系统提示词 (System Prompt)
@@ -202,57 +442,39 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
         f"请只输出JSON。"
     )
 
-    # Attempt strategy:
-    # - Local: start with simplified JSON prompt for stability
-    # - Remote/cloud: keep full prompt first
-    if IS_LOCAL:
-        data = _call_and_parse(client, SIMPLE_JSON_PROMPT, user_content)
-    else:
-        data = _call_and_parse(client, SYSTEM_PROMPT, user_content)
+    data = None
+    for attempt in range(1, MAX_ANALYSIS_RETRIES + 1):
+        # Attempt strategy:
+        # - Local: simplified prompt first, then minimal prompt
+        # - Remote: domain prompt directly
+        if IS_LOCAL:
+            data = _call_and_parse(client, SIMPLE_JSON_PROMPT, user_content)
+            if data is None:
+                logger.warning(
+                    f"[{API_PROVIDER}] Retry with minimal strict schema for '{article.title[:40]}' (attempt {attempt}/{MAX_ANALYSIS_RETRIES})"
+                )
+                minimal_user_content = (
+                    f"title: {article.title[:180]}\n"
+                    f"source: {article.source}\n"
+                    f"url: {article.url}\n"
+                    f"snippet: {article.content_snippet[:350]}\n"
+                )
+                minimal_prompt = (
+                    'Return ONLY valid JSON. No markdown. No explanation. '
+                    'Required keys: category_tag,title_zh,title_en,title_de,summary_zh,summary_en,summary_de,'
+                    'core_tech_points,german_context,tool_stack,simple_explanation,technician_analysis_de. '
+                    'Use empty string if unknown.'
+                )
+                data = _call_and_parse(client, minimal_prompt, minimal_user_content)
+        else:
+            data = _call_and_parse(client, SYSTEM_PROMPT, user_content)
 
-    # --- Attempt 3: Retry with strict minimal schema + shorter input (尝试 3: 最小化输入重试) ---
-    if data is None and IS_LOCAL:
-        logger.warning(f"[{API_PROVIDER}] Retry with minimal strict schema for '{article.title[:40]}'")
-        minimal_user_content = (
-            f"title: {article.title[:180]}\n"
-            f"source: {article.source}\n"
-            f"url: {article.url}\n"
-            f"snippet: {article.content_snippet[:350]}\n"
-        )
-        minimal_prompt = (
-            'Return ONLY valid JSON. No markdown. No explanation. '
-            'Required keys: category_tag,title_zh,title_en,title_de,summary_zh,summary_en,summary_de,'
-            'core_tech_points,german_context,tool_stack,simple_explanation,technician_analysis_de. '
-            'Use empty string if unknown.'
-        )
-        data = _call_and_parse(client, minimal_prompt, minimal_user_content)
-
-    # Final retry for local model with full domain prompt (may recover richer outputs)
-    if data is None and IS_LOCAL:
-        logger.warning(f"[{API_PROVIDER}] Final retry with full prompt for '{article.title[:40]}'")
-        data = _call_and_parse(client, SYSTEM_PROMPT, user_content)
+        if data is not None:
+            break
 
     if data is None:
         logger.error(f"[{API_PROVIDER}] All parse attempts failed for '{article.title[:40]}'")
-        # Return fallback object (返回兜底对象，避免流程中断)
-        return AnalyzedArticle(
-            category_tag=article.category or "Other",
-            title_zh=article.title,
-            title_en=article.title,
-            title_de=article.title,
-            core_tech_points="N/A (analysis fallback)",
-            german_context=article.source,
-            source_name=article.source,
-            source_url=article.url,
-            summary_zh="本地模型分析失败，建议切换云端模型后重试。",
-            summary_en="Local model analysis failed. Please switch to a cloud model and retry.",
-            summary_de="Lokale Modellanalyse fehlgeschlagen. Bitte auf ein Cloud-Modell wechseln und erneut versuchen.",
-            tool_stack="N/A",
-            simple_explanation="模型未返回可解析的结构化结果。",
-            technician_analysis_de="Kein auswertbares Modell-Ergebnis verfügbar.",
-            original=article,
-            target_personas=article.target_personas, # Pass through
-        )
+        return _derive_safe_fallback(article)
 
     # Helper to force string type
     def _ensure_str(value: any) -> str:
@@ -261,15 +483,14 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
         if isinstance(value, str):
             return value
         if isinstance(value, list):
-            # Join list items with space or comma
-            return " ".join(str(v) for v in value)
+            return _format_structured_value(value)
         if isinstance(value, dict):
-            # Fallback for dict (should stay rare): dump as string
-            return json.dumps(value, ensure_ascii=False)
+            return _format_structured_value(value)
         return str(value)
 
+    data = _normalize_analyzed_payload(data, article)
+
     # Construct AnalyzedArticle from JSON data
-    # creating AnalyzedArticle with sanitized inputs
     analyzed = AnalyzedArticle(
         category_tag=_ensure_str(data.get("category_tag", "Other")),
         title_zh=_ensure_str(data.get("title_zh", article.title)),
@@ -296,7 +517,7 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
 def _call_and_parse(client: OpenAI, system_prompt: str, user_content: str) -> dict | None:
     """Call the model and attempt to parse JSON from the response."""
     try:
-        request_kwargs = {
+        request_kwargs: dict = {
             "model": LLM_MODEL,
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -313,7 +534,7 @@ def _call_and_parse(client: OpenAI, system_prompt: str, user_content: str) -> di
             **request_kwargs
         )
 
-        raw = response.choices[0].message.content
+        raw = _extract_text_from_message_content(response.choices[0].message.content)
         if not raw:
             logger.warning(f"[{API_PROVIDER}] Empty response from model")
             return None
@@ -329,8 +550,34 @@ def _call_and_parse(client: OpenAI, system_prompt: str, user_content: str) -> di
         return data
 
     except Exception as e:
-        logger.error(f"[{API_PROVIDER}] API call error: {e}")
-        return None
+        logger.warning(f"[{API_PROVIDER}] API call with JSON mode failed: {e}")
+        # Local providers can be sensitive to JSON mode flags; retry once without it.
+        if not IS_LOCAL:
+            return None
+        try:
+            response = client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.0,
+                max_tokens=MAX_TOKENS,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+            raw = _extract_text_from_message_content(response.choices[0].message.content)
+            if not raw:
+                logger.warning(f"[{API_PROVIDER}] Empty response from model (retry)")
+                return None
+            raw = raw.strip()
+            logger.info(f"[{API_PROVIDER}] Raw response retry ({len(raw)} chars): {raw[:300]}...")
+            data = _extract_json(raw)
+            if data is None:
+                logger.warning(f"[{API_PROVIDER}] Could not extract JSON from retry response")
+            return data
+        except Exception as retry_exc:
+            logger.error(f"[{API_PROVIDER}] API call error (retry): {retry_exc}")
+            return None
 
 
 def analyze_articles(articles: list[Article], mock: bool = False) -> list[AnalyzedArticle]:
@@ -343,6 +590,11 @@ def analyze_articles(articles: list[Article], mock: bool = False) -> list[Analyz
     results: list[AnalyzedArticle] = []
     if not articles:
         return results
+    if IS_LOCAL and not mock and not _is_local_endpoint_reachable():
+        logger.error(
+            f"[{API_PROVIDER}] Local endpoint unreachable ({LLM_BASE_URL}); using fallback summaries for all articles"
+        )
+        return [_derive_safe_fallback(article) for article in articles]
 
     # Keep deterministic order while still using concurrent requests.
     # 保持结果顺序确定，同时使用并发请求
