@@ -59,13 +59,17 @@ def test_render_digest_technician_mode_styles():
         language = "de"
 
     article = _make_article()
-    article.technician_analysis_de = "- Kurzer Satz."
+    article.technician_analysis_de = "- Lernen schnell. Probleme bleiben."
     html = render_digest([article], "2026-02-19", Profile())
     assert 'body class="technician-mode"' in html
     assert "font-family: Arial, Helvetica, sans-serif;" in html
     assert "letter-spacing: 0.02em;" in html
     assert "background: #f5f5f5;" in html
     assert "white-space: pre-line;" in html
+    assert "border-left: 6px solid #1d4ed8;" in html
+    assert "border-left: 6px solid #16a34a;" in html
+    assert "border-left: 6px solid #ea580c;" in html
+    assert "<strong>Lernen</strong>" in html
 
 
 def test_render_digest_non_technician_no_mode_class():

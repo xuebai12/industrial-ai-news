@@ -7,6 +7,7 @@
 import logging
 import smtplib
 import re
+import html
 from datetime import date
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -96,8 +97,12 @@ EMAIL_TEMPLATE = Template(
   .label { display: block; font-size: 12px; color: #475467; font-weight: 700; text-transform: uppercase;
            letter-spacing: 0.2px; margin-bottom: 4px; }
   .value { font-size: 14px; line-height: 1.6; color: #1f2937; }
-  body.technician-mode .value { line-height: 1.7; letter-spacing: 0.02em; }
-  body.technician-mode .row.explain .value { white-space: pre-line; background: #fcfcfc; border-left: 3px solid #d0d5dd; padding: 8px 10px; border-radius: 6px; }
+  body.technician-mode .row { margin: 0 0 34px; }
+  body.technician-mode .value { line-height: 1.75; letter-spacing: 0.02em; white-space: pre-line; padding: 10px 12px; border-radius: 6px; }
+  body.technician-mode .row.tech-block .value { border-left: 6px solid #1d4ed8; background: #eff6ff; }
+  body.technician-mode .row.benefit-block .value { border-left: 6px solid #16a34a; background: #f0fdf4; }
+  body.technician-mode .row.issue-block .value { border-left: 6px solid #ea580c; background: #fff7ed; }
+  body.technician-mode .row .label { margin-bottom: 8px; }
   .source { margin-top: 10px; font-size: 13px; color: #344054; }
   .source a { color: #175cd3; text-decoration: none; }
   .footer { text-align: center; padding: 16px 8px 8px; font-size: 12px; color: #98a2b3; }
@@ -129,17 +134,17 @@ EMAIL_TEMPLATE = Template(
     <div class="subtle">{{ article.title_en }}</div>
     {% endif %}
 
-    <div class="row">
+    <div class="row{% if technician_mode %} tech-block{% endif %}">
       <span class="label">{{ labels.tech_points_label }}</span>
       <div class="value">{{ article.core_tech_compact }}</div>
     </div>
 
-    <div class="row">
+    <div class="row{% if technician_mode %} benefit-block{% endif %}">
       <span class="label">{{ labels.application_label }}</span>
       <div class="value">{{ article.context_compact }}</div>
     </div>
 
-    <div class="row{% if technician_mode %} explain{% endif %}">
+    <div class="row{% if technician_mode %} issue-block{% endif %}">
       <span class="label">{{ labels.simple_explain_label }}</span>
       <div class="value">{{ article.simple_explanation }}</div>
     </div>
@@ -217,6 +222,25 @@ def _localize_context_for_technician(text: str) -> str:
     return value
 
 
+def _emphasize_sentence_leads_html(text: str) -> str:
+    """Bold the leading keyword for each sentence/line to improve scanability."""
+    value = (text or "").strip()
+    if not value:
+        return ""
+    value = re.sub(r"\s+", " ", value)
+    parts = [seg.strip(" -•\t") for seg in re.split(r"(?<=[.!?])\s+|\n+", value) if seg.strip(" -•\t")]
+    rendered: list[str] = []
+    for part in parts:
+        tokens = part.split(maxsplit=1)
+        lead = html.escape(tokens[0].strip(" ,;:"))
+        rest = html.escape(tokens[1]) if len(tokens) > 1 else ""
+        if rest:
+            rendered.append(f"<strong>{lead}</strong> {rest}")
+        else:
+            rendered.append(f"<strong>{lead}</strong>")
+    return "<br>".join(rendered)
+
+
 def render_digest(
     articles: list[AnalyzedArticle], today: str | None = None, profile: object | None = None
 ) -> str:
@@ -249,6 +273,10 @@ def render_digest(
         core_text = (article.core_tech_points or "").strip() or "N/A"
         if persona == "technician" and core_text == "N/A":
             core_text = "Keine technischen Kerndetails verfügbar."
+        if technician_mode:
+            core_text = _emphasize_sentence_leads_html(core_text)
+            context_text = _emphasize_sentence_leads_html(context_text)
+            simple_explanation = _emphasize_sentence_leads_html(simple_explanation)
 
         rendered_articles.append(
             {
