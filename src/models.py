@@ -43,7 +43,7 @@ class AnalyzedArticle:
     # 新维度：不再关注求职面试，而是关注通俗解读
     tool_stack: str = ""           # 提及的工具栈/软件 (e.g. Siemens, AnyLogic)
     simple_explanation: str = ""   # 通俗解读 (Beginner-friendly explanation - Student View)
-    technician_analysis_de: str = "" # 技师视角分析 (Technician View - German)
+    technician_analysis_de: str = "" # 技师视角分析（阅读障碍友好）(Technician View - German, dyslexia-friendly)
     
     target_personas: list[str] = field(default_factory=list) # 目标受众标签 (e.g. ["Student", "Technician"])
     

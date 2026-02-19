@@ -44,6 +44,23 @@ REQUIRED_KEYS = (
     "technician_analysis_de",
 )
 
+GERMAN_COMPOUND_SPLIT_PAIRS: tuple[tuple[str, str], ...] = (
+    ("zuverlaessigkeits", "modellierung"),
+    ("wahrscheinlichkeits", "theoretische"),
+    ("wahrscheinlichkeits", "rechnung"),
+    ("rechen", "zuverlaessigkeit"),
+    ("echtzeit", "daten"),
+    ("daten", "verarbeitung"),
+    ("netzwerk", "ueberwachung"),
+    ("ueberwachungs", "system"),
+    ("fehler", "zustands"),
+    ("zustands", "uebergang"),
+    ("anlagen", "verfuegbarkeit"),
+    ("vorausschauende", "wartung"),
+    ("zustands", "bewertung"),
+    ("prozess", "optimierung"),
+)
+
 
 STRUCTURED_KEY_LABELS = {
     "relevance": "Relevance",
@@ -81,6 +98,120 @@ def _format_structured_value(value: object) -> str:
         items = [item for item in items if item]
         return "; ".join(items)
     return str(value).strip()
+
+
+def _split_compound_token(token: str) -> str:
+    """Split long German compounds with conservative heuristics."""
+    def _hyphenate(raw: str, idx: int) -> str:
+        left = raw[:idx]
+        right = raw[idx:]
+        if raw[:1].isupper() and right[:1].islower():
+            right = right[:1].upper() + right[1:]
+        return f"{left}-{right}"
+
+    stripped = token.strip()
+    if len(stripped) < 18 or "-" in stripped or not re.fullmatch(r"[A-Za-zÄÖÜäöüß]+", stripped):
+        return token
+    lower = stripped.lower()
+    for left, right in GERMAN_COMPOUND_SPLIT_PAIRS:
+        if lower.endswith(left + right):
+            cut = len(stripped) - len(right)
+            return _hyphenate(stripped, cut)
+        if left in lower and lower.endswith(right):
+            start = lower.rfind(left)
+            cut = start + len(left)
+            if 4 <= cut <= len(stripped) - 4:
+                return _hyphenate(stripped, cut)
+
+    glue_parts = ("daten", "modell", "system", "technik", "analyse", "prozess", "management")
+    for part in glue_parts:
+        idx = lower.rfind(part)
+        if idx > 4 and idx < len(stripped) - 4:
+            return _hyphenate(stripped, idx)
+    return token
+
+
+def _split_german_compounds(text: str) -> str:
+    """Split long German compounds token by token."""
+    tokens = re.split(r"(\s+)", text or "")
+    return "".join(_split_compound_token(token) if not token.isspace() else token for token in tokens)
+
+
+def _split_long_sentence(sentence: str, max_words: int = 20) -> list[str]:
+    """Break long German sentences into short, readable statements."""
+    words = sentence.split()
+    if len(words) <= max_words:
+        return [sentence.strip()]
+
+    split_points = [
+        m.start() for m in re.finditer(r",\s+|;\s+|\s+(?:und|aber|weil|dass|sowie|wobei|wenn|oder)\s+", sentence, flags=re.IGNORECASE)
+    ]
+    if not split_points:
+        midpoint = len(words) // 2
+        return [
+            " ".join(words[:midpoint]).strip(" ,;:."),
+            " ".join(words[midpoint:]).strip(" ,;:."),
+        ]
+
+    parts: list[str] = []
+    start = 0
+    for point in split_points:
+        candidate = sentence[start:point].strip(" ,;:.")
+        if candidate:
+            parts.append(candidate)
+        start = point
+    tail = sentence[start:].strip(" ,;:.")
+    if tail:
+        parts.append(tail)
+
+    expanded: list[str] = []
+    for part in parts:
+        if len(part.split()) > max_words:
+            expanded.extend(_split_long_sentence(part, max_words=max_words))
+        else:
+            expanded.append(part)
+    return [item for item in expanded if item]
+
+
+def _enforce_short_sentences_de(text: str) -> list[str]:
+    """Normalize punctuation and enforce short sentence lines."""
+    cleaned = re.sub(r"\s+", " ", (text or "").strip())
+    if not cleaned:
+        return []
+    raw_sentences = [
+        part.strip(" -•\t")
+        for part in re.split(r"(?<=[.!?])\s+|;\s+|\n+", cleaned)
+        if part.strip(" -•\t")
+    ]
+    lines: list[str] = []
+    for sentence in raw_sentences:
+        short_parts = _split_long_sentence(sentence)
+        for part in short_parts:
+            final = part.strip(" ,;:.")
+            if not final:
+                continue
+            if not re.search(r"[.!?]$", final):
+                final += "."
+            lines.append(final)
+    return lines
+
+
+def _normalize_technician_text_de(text: str) -> str:
+    """
+    Build dyslexia-friendly German technician output:
+    short lines, split compounds, and readable bullet layout.
+    """
+    fallback = "Kurzanalyse nicht verfuegbar. Bitte Lauf erneut starten."
+    base = (text or "").strip()
+    if not base:
+        return fallback
+    de_noisy = base.replace("->", " -> ").replace("|", ". ")
+    de_noisy = _split_german_compounds(de_noisy)
+    lines = _enforce_short_sentences_de(de_noisy)
+    if not lines:
+        return fallback
+    capped = [f"- {line}" for line in lines[:8]]
+    return "\n".join(capped)
 
 
 def _get_client() -> OpenAI:
@@ -283,6 +414,7 @@ def _normalize_analyzed_payload(data: dict, article: Article) -> dict:
     if not normalized.get("technician_analysis_de"):
         summary_de = normalized.get("summary_de") or normalized.get("summary_en") or ""
         normalized["technician_analysis_de"] = f"[AI Generated] {summary_de}" if summary_de else f"Auszug: {article.content_snippet[:200]}..."
+    normalized["technician_analysis_de"] = _normalize_technician_text_de(str(normalized.get("technician_analysis_de", "")))
 
     return normalized
 
@@ -339,6 +471,7 @@ def _derive_safe_fallback(article: Article) -> AnalyzedArticle:
         f"{'Auszug: ' + compact_snippet + '. ' if compact_snippet else ''}"
         "Bitte Lauf erneut starten, um vollständige Techniker-Analyse zu erzeugen."
     )
+    technician_explain = _normalize_technician_text_de(technician_explain)
 
     return AnalyzedArticle(
         category_tag=article.category or "Research",
@@ -373,6 +506,12 @@ Constraint (核心限制):
    - 学生视角：解释数据流向（传感器 -> PLC -> Jupyter -> 仿真模型）。
    - 技术员视角：关注维护（Instandhaltung）、设备可用性（Anlagenverfügbarkeit）和 OEE。
 3. 双语对齐：关键术语保留德语和英文原词并附带中文注释。
+4. 阅读障碍友好（technician_analysis_de 必须遵守）：
+   - 使用短句：每句目标 12-16 词，最多 20 词。
+   - 一句一意，避免多重从句。
+   - 德语复合词在必要时使用连字符拆分（例：Zuverlaessigkeits-Modellierung）。
+   - 结构使用 2-4 个短段或短列表，禁止密集长段落。
+   - 术语首次出现时给极简德语解释（不超过 8 词）。
 
 这是背景设定。现在，作为分析师，请分析给定文章，并输出**纯 JSON**（无其他文字）。
 
@@ -401,7 +540,8 @@ SIMPLE_JSON_PROMPT = (
     'You are a JSON generator. Output ONLY a JSON object with these keys: '
     '"category_tag", "title_zh", "title_en", "title_de", "summary_zh", "summary_en", "summary_de", '
     '"core_tech_points", "german_context", "tool_stack", "simple_explanation", "technician_analysis_de". '
-    "No explanation, no markdown, ONLY JSON."
+    "No explanation, no markdown, ONLY JSON. "
+    "For technician_analysis_de use short German sentences (max 20 words each) and split long compounds with hyphens."
 )
 
 
@@ -463,7 +603,8 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
                     'Return ONLY valid JSON. No markdown. No explanation. '
                     'Required keys: category_tag,title_zh,title_en,title_de,summary_zh,summary_en,summary_de,'
                     'core_tech_points,german_context,tool_stack,simple_explanation,technician_analysis_de. '
-                    'Use empty string if unknown.'
+                    'Use empty string if unknown. '
+                    'technician_analysis_de must use short German sentences (max 20 words) and hyphenated compounds when needed.'
                 )
                 data = _call_and_parse(client, minimal_prompt, minimal_user_content)
         else:
@@ -509,6 +650,7 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
         target_personas=article.target_personas, # List type is expected here
         original=article,
     )
+    analyzed.technician_analysis_de = _normalize_technician_text_de(analyzed.technician_analysis_de)
 
     logger.info(f"[{API_PROVIDER}] ✅ Analyzed: [{analyzed.category_tag}] {analyzed.title_zh[:50]}")
     return analyzed

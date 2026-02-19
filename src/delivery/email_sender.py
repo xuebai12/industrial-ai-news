@@ -77,6 +77,7 @@ EMAIL_TEMPLATE = Template(
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
          max-width: 760px; margin: 0 auto; padding: 20px; color: #1f2937; background: #f3f5f9; }
+  body.technician-mode { font-family: Arial, Helvetica, sans-serif; line-height: 1.6; letter-spacing: 0.02em; background: #f5f5f5; }
   .header { background: linear-gradient(120deg, #0b3c7f, #0f5db8); color: #fff;
             padding: 22px; border-radius: 12px; margin-bottom: 14px; }
   .header h1 { margin: 0; font-size: 22px; letter-spacing: 0.2px; }
@@ -95,12 +96,14 @@ EMAIL_TEMPLATE = Template(
   .label { display: block; font-size: 12px; color: #475467; font-weight: 700; text-transform: uppercase;
            letter-spacing: 0.2px; margin-bottom: 4px; }
   .value { font-size: 14px; line-height: 1.6; color: #1f2937; }
+  body.technician-mode .value { line-height: 1.7; letter-spacing: 0.02em; }
+  body.technician-mode .row.explain .value { white-space: pre-line; background: #fcfcfc; border-left: 3px solid #d0d5dd; padding: 8px 10px; border-radius: 6px; }
   .source { margin-top: 10px; font-size: 13px; color: #344054; }
   .source a { color: #175cd3; text-decoration: none; }
   .footer { text-align: center; padding: 16px 8px 8px; font-size: 12px; color: #98a2b3; }
 </style>
 </head>
-<body>
+<body class="{{ 'technician-mode' if technician_mode else '' }}">
   <div class="header">
     <h1>{{ labels.title }}</h1>
     <div class="date">{{ today }} | {{ labels.date_suffix }}</div>
@@ -136,7 +139,7 @@ EMAIL_TEMPLATE = Template(
       <div class="value">{{ article.context_compact }}</div>
     </div>
 
-    <div class="row">
+    <div class="row{% if technician_mode %} explain{% endif %}">
       <span class="label">{{ labels.simple_explain_label }}</span>
       <div class="value">{{ article.simple_explanation }}</div>
     </div>
@@ -222,6 +225,7 @@ def render_digest(
         today = date.today().strftime("%Y-%m-%d")
 
     persona = str(getattr(profile, "persona", "")).strip().lower() if profile else ""
+    technician_mode = persona == "technician"
     base_lang = getattr(profile, "language", "zh") if profile else "zh"
     lang = "en" if persona == "student" else base_lang
     labels = I18N_LABELS.get(lang, I18N_LABELS["zh"])
@@ -282,6 +286,7 @@ def render_digest(
         top_articles=top_articles,
         profile=profile,
         labels=labels,
+        technician_mode=technician_mode,
     )
 
 
