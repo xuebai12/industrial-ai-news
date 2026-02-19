@@ -2,7 +2,7 @@
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from googleapiclient.discovery import build
@@ -41,7 +41,7 @@ def scrape_youtube(
 
         # Calculate publishedAfter date (e.g., last 24 hours)
         # For a daily digest, we might want videos from the last 24-48 hours.
-        published_after = (datetime.utcnow() - timedelta(days=2)).isoformat("T") + "Z"
+        published_after = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat("T").replace("+00:00", "Z")
 
         request = youtube.search().list(
             part="snippet",

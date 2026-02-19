@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 # --- API Config (API 配置) ---
 # -----------------------------
 # 读取 NVIDIA 的 API Key (MOONSHOT_API_KEY 已移除)
-# 读取 NVIDIA 的 API Key (MOONSHOT_API_KEY 已移除)
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 
 # YouTube API Key
