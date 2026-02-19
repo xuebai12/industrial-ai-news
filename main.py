@@ -446,6 +446,30 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         else:
             logger.info("[SCRAPE] Skipping dynamic scrapers (--skip-dynamic)")
 
+        # 2.4 YouTube 抓取
+        youtube_sources = [s for s in DATA_SOURCES if s.source_type == "youtube"]
+        if youtube_sources:
+            try:
+                from src.scrapers.youtube_scraper import scrape_youtube
+                for source in youtube_sources:
+                    try:
+                        yt_videos = scrape_youtube(
+                            name=source.name,
+                            url=source.url, # passed as query
+                            language=source.language,
+                            category=source.category,
+                            max_items=args.max_articles,
+                        )
+                        all_articles.extend(yt_videos)
+                    except Exception as exc:
+                         _append_failure(result, "scrape", "YOUTUBE", str(exc), source=source.name)
+                         logger.error("[SCRAPE] YouTube source failed: %s | %s", source.name, exc)
+            except ImportError:
+                 logger.warning("[SCRAPE] google-api-python-client not installed. Skipping YouTube.")
+            except Exception as exc:
+                 _append_failure(result, "scrape", "YOUTUBE_INIT", str(exc))
+                 logger.error("[SCRAPE] Failed to initialize YouTube scraper: %s", exc)
+
     except Exception as exc:
         _append_failure(result, "scrape", "SCRAPE", str(exc))
         result.exit_reason = "scraping stage failed"

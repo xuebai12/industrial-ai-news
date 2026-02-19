@@ -54,9 +54,9 @@ I18N_LABELS = {
     "de": {
         "title": "Industrial AI Tageszusammenfassung",
         "stats": "Heute wurden <strong>{{ count }}</strong> relevante Berichte ausgewählt",
-        "simple_explain_label": "Einfach Erklaert",
-        "tech_points_label": "Kerntechnologie",
-        "application_label": "Anwendungskontext",
+        "simple_explain_label": "Wo liegt das Problem?",
+        "tech_points_label": "Was passiert technisch?",
+        "application_label": "Welcher Nutzen entsteht?",
         "source_label": "Quelle",
         "link_label": "Originalartikel",
         "overview_title": "Tagesueberblick",
@@ -97,12 +97,28 @@ EMAIL_TEMPLATE = Template(
   .label { display: block; font-size: 12px; color: #475467; font-weight: 700; text-transform: uppercase;
            letter-spacing: 0.2px; margin-bottom: 4px; }
   .value { font-size: 14px; line-height: 1.6; color: #1f2937; }
-  body.technician-mode .row { margin: 0 0 34px; }
-  body.technician-mode .value { line-height: 1.75; letter-spacing: 0.02em; white-space: pre-line; padding: 10px 12px; border-radius: 6px; }
-  body.technician-mode .row.tech-block .value { border-left: 6px solid #1d4ed8; background: #eff6ff; }
-  body.technician-mode .row.benefit-block .value { border-left: 6px solid #16a34a; background: #f0fdf4; }
-  body.technician-mode .row.issue-block .value { border-left: 6px solid #ea580c; background: #fff7ed; }
-  body.technician-mode .row .label { margin-bottom: 8px; }
+  body.technician-mode .article { border: 2px solid #d1d5db; background: #ffffff; }
+  body.technician-mode .row { margin: 0 0 34px; padding: 8px; border-radius: 8px; }
+  body.technician-mode .value { line-height: 1.8; letter-spacing: 0.02em; white-space: pre-line; padding: 12px 14px; border-radius: 6px; font-size: 16px; }
+  body.technician-mode .row.tech-block { background: #dbeafe; }
+  body.technician-mode .row.tech-block .value { border-left: 8px solid #1d4ed8; background: #eff6ff; color: #1e3a8a; }
+  body.technician-mode .row.benefit-block { background: #dcfce7; }
+  body.technician-mode .row.benefit-block .value { border-left: 8px solid #16a34a; background: #f0fdf4; color: #14532d; }
+  body.technician-mode .row.issue-block { background: #ffedd5; }
+  body.technician-mode .row.issue-block .value { border-left: 8px solid #ea580c; background: #fff7ed; color: #9a3412; }
+  body.technician-mode .row .label { margin-bottom: 10px; font-size: 13px; color: #111827; letter-spacing: 0.3px; }
+  body.technician-mode strong { font-size: 17px; }
+  @media (max-width: 640px) {
+    body { padding: 12px; }
+    body.technician-mode .header { padding: 16px; }
+    body.technician-mode .article { padding: 12px; border-width: 2px; }
+    body.technician-mode .row { margin: 0 0 30px; padding: 6px; }
+    body.technician-mode .value { font-size: 17px; line-height: 1.85; padding: 12px; }
+    body.technician-mode .row.tech-block .value { border-left-width: 9px; }
+    body.technician-mode .row.benefit-block .value { border-left-width: 9px; }
+    body.technician-mode .row.issue-block .value { border-left-width: 9px; }
+    body.technician-mode .source { font-size: 14px; }
+  }
   .source { margin-top: 10px; font-size: 13px; color: #344054; }
   .source a { color: #175cd3; text-decoration: none; }
   .footer { text-align: center; padding: 16px 8px 8px; font-size: 12px; color: #98a2b3; }
@@ -222,6 +238,25 @@ def _localize_context_for_technician(text: str) -> str:
     return value
 
 
+def _simplify_for_beginner_de(text: str) -> str:
+    """Replace hard technical terms with beginner-friendly wording."""
+    value = (text or "").strip()
+    if not value:
+        return ""
+    simple_map = {
+        r"\bSPS\b": "Steuerungsrechner",
+        r"\bPLC\b": "Steuerungsrechner",
+        r"\bTIA Portal\b": "Siemens-Programmieroberflaeche",
+        r"\bOEE\b": "Anlagen-Leistung",
+        r"\bModell\b": "Rechenmodell",
+        r"\bInstandhaltung\b": "Wartung",
+        r"\bPredictive Maintenance\b": "vorausschauende Wartung",
+    }
+    for pattern, target in simple_map.items():
+        value = re.sub(pattern, target, value, flags=re.IGNORECASE)
+    return value
+
+
 def _emphasize_sentence_leads_html(text: str) -> str:
     """Bold the leading keyword for each sentence/line to improve scanability."""
     value = (text or "").strip()
@@ -274,6 +309,9 @@ def render_digest(
         if persona == "technician" and core_text == "N/A":
             core_text = "Keine technischen Kerndetails verfügbar."
         if technician_mode:
+            core_text = _simplify_for_beginner_de(core_text)
+            context_text = _simplify_for_beginner_de(context_text)
+            simple_explanation = _simplify_for_beginner_de(simple_explanation)
             core_text = _emphasize_sentence_leads_html(core_text)
             context_text = _emphasize_sentence_leads_html(context_text)
             simple_explanation = _emphasize_sentence_leads_html(simple_explanation)

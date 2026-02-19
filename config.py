@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 # --- API Config (API 配置) ---
 # -----------------------------
 # 读取 NVIDIA 的 API Key (MOONSHOT_API_KEY 已移除)
+# 读取 NVIDIA 的 API Key (MOONSHOT_API_KEY 已移除)
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
+
+# YouTube API Key
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
 
 # Determine which provider to use (自动判断使用哪个模型提供商)
 # 优先级 Priority: USE_LOCAL_OLLAMA > NVIDIA NIM > Local Ollama (Fallback)
@@ -527,5 +531,22 @@ DATA_SOURCES: list[DataSource] = [
         language="de",
         category="industry",
         priority=1,
+    ),
+    # --- 4. YouTube Channels (Video) ---
+    DataSource(
+        name="YouTube: Industrial AI",
+        url="Industrial AI",  # Search query
+        source_type="youtube",
+        language="en",
+        category="industry",
+        priority=2,
+    ),
+    DataSource(
+        name="YouTube: Siemens",
+        url="Siemens Digital Industries Software",
+        source_type="youtube",
+        language="en",
+        category="industry",
+        priority=2,
     ),
 ]
