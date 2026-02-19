@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 
 # YouTube API Key
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
+YOUTUBE_API_KEY = os.getenv("AQ.Ab8RN6JZswz2KTOkAFyprt1E6Tz9tdNXEsR7rIyeGHSdLVYOLA", "")
 
 # Determine which provider to use (自动判断使用哪个模型提供商)
 # 优先级 Priority: USE_LOCAL_OLLAMA > NVIDIA NIM > Local Ollama (Fallback)
