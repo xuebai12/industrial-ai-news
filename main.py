@@ -18,6 +18,8 @@ from config import (
     DATA_SOURCES,
     RECIPIENT_PROFILES,
     YOUTUBE_FOCUS_CHANNELS_BY_REGION,
+    RSS_WEB_PRIORITY_SOURCES,
+    RSS_WEB_PRIORITY_ONLY,
     validate_config,
 )
 
@@ -281,6 +283,18 @@ def _article_score(article: object) -> int:
     return int(getattr(article, "relevance_score", 0) or 0)
 
 
+def _prioritize_sources(sources: list, priority_names: list[str], priority_only: bool = False) -> list:
+    """Prioritize sources by name with optional whitelist-only mode."""
+    priority_set = {name.strip().casefold() for name in priority_names if name.strip()}
+    if not priority_set:
+        return list(sources)
+    prioritized = [s for s in sources if str(getattr(s, "name", "")).strip().casefold() in priority_set]
+    if priority_only:
+        return prioritized
+    remaining = [s for s in sources if str(getattr(s, "name", "")).strip().casefold() not in priority_set]
+    return prioritized + remaining
+
+
 def _load_sent_history(path: str) -> dict[str, dict[str, str]]:
     if not os.path.exists(path):
         return {}
@@ -422,6 +436,11 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
 
         # 2.1 RSS 抓取
         rss_sources = [s for s in DATA_SOURCES if s.source_type == "rss"]
+        rss_sources = _prioritize_sources(
+            rss_sources,
+            priority_names=RSS_WEB_PRIORITY_SOURCES,
+            priority_only=RSS_WEB_PRIORITY_ONLY,
+        )
         for source in rss_sources:
             try:
                 articles = scrape_rss(
@@ -439,7 +458,13 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
                     raise
 
         # 2.2 网页抓取 (BeautifulSoup)
-        web_articles = scrape_web_sources(args.max_articles)
+        web_sources = [s for s in DATA_SOURCES if s.source_type == "web"]
+        web_sources = _prioritize_sources(
+            web_sources,
+            priority_names=RSS_WEB_PRIORITY_SOURCES,
+            priority_only=RSS_WEB_PRIORITY_ONLY,
+        )
+        web_articles = scrape_web_sources(args.max_articles, sources=web_sources)
         all_articles.extend(web_articles)
 
         # 2.3 动态抓取 (Playwright)

@@ -189,7 +189,7 @@ def scrape_generic_web(source_name: str, url: str, selector: str,
     return articles
 
 
-def scrape_web_sources(max_items: int = 20) -> list[Article]:
+def scrape_web_sources(max_items: int = 20, sources: list | None = None) -> list[Article]:
     """
     抓取所有配置为 'web' 类型的源 (Scrape all web sources).
     根据 config.DATA_SOURCES 中的定义，自动匹配抓取规则。
@@ -229,7 +229,7 @@ def scrape_web_sources(max_items: int = 20) -> list[Article]:
     # Generic fallback selector (通用回退选择器)
     default_selector = "article, .news-item, .card, .entry, .post"
 
-    web_sources = [s for s in DATA_SOURCES if s.source_type == "web"]
+    web_sources = list(sources) if sources is not None else [s for s in DATA_SOURCES if s.source_type == "web"]
     observation_state = _load_observation_state()
 
     session = _build_session()

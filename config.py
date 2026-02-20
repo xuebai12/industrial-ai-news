@@ -153,6 +153,21 @@ PRIORITY_INDUSTRIAL_SOURCES = [
     "DFKI News",
 ]
 
+# RSS/Web source prioritization:
+# - default: prioritize whitelist first, then backfill others.
+# - set RSS_WEB_PRIORITY_ONLY=true to scrape only whitelist sources.
+RSS_WEB_PRIORITY_SOURCES = [
+    "Fraunhofer IPA Press",
+    "DFKI News",
+    "SimPlan Blog/News",
+    "VDI Nachrichten Tech",
+    "Plattform Industrie 4.0",
+    "Manufacturing.net",
+    "NVIDIA Omniverse Blog",
+    "Google Cloud Manufacturing Blog",
+]
+RSS_WEB_PRIORITY_ONLY = _env_flag("RSS_WEB_PRIORITY_ONLY", "false")
+
 # --- YouTube Focus Channels (优先频道白名单) ---
 # ----------------------------------------------
 YOUTUBE_FOCUS_CHANNELS_BY_REGION: dict[str, list[str]] = {
