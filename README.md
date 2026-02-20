@@ -21,6 +21,10 @@
 | 3️⃣ 分析 | 用 AI 生成中/英/德三语摘要，并为不同读者写不同版本 | 秘书整理会议纪要 |
 | 4️⃣ 发送 | 把摘要发送到配置好的邮箱，或存入 Notion | 发送日报 |
 
+**当前邮件发送采用“先审后发”机制：**
+- 默认先发两封审核邮件到 `baixue243@gmail.com`（Student + Technician）
+- 审核通过后再执行正式群发（不会重复发给审核邮箱）
+
 ---
 
 ## 👥 会发给谁？发什么内容？
@@ -38,7 +42,28 @@
 - 内容：
   - 🔵 **Kernfokus**（应用场景与落地重点，短句列表）
   - 🟠 **Kernmechanismus**（用形象比喻解释“它怎么运作”）
-  - 展示方式：**两栏位、两颜色、上下排列**（不做左右分栏）
+  - 展示方式：**两个栏目、两种颜色、上下排列**
+
+---
+
+## 🎯 检索领域（固定 6 大类）
+
+系统当前重点搜索以下 6 个 AI 工业应用领域：
+
+1. 工厂（Factory）
+2. 机器人（Robotics）
+3. 汽车（Automotive）
+4. 供应链（Supply Chain）
+5. 能源（Energy）
+6. 网络安全（Cybersecurity）
+
+其中“工厂”已细分为：
+- 设计与研发
+- 生产与工艺优化
+- 质量检测与缺陷分析
+- 设备运维与预测性维护
+
+并且默认启用 **AI 信号硬门槛**：纯行业新闻（如纯汽车新闻）不会进入分析，必须出现 AI/ML/机器视觉/大模型等信号。
 
 ---
 
@@ -114,6 +139,10 @@ SMTP_PORT=587
 SMTP_USER=你的邮箱@gmail.com
 SMTP_PASS=你的应用专用密码
 EMAIL_TO=收件人@gmail.com
+EMAIL_REVIEWER=baixue243@gmail.com  # 审核邮箱（默认值）
+
+# 过滤开关（建议保持默认）
+REQUIRE_AI_SIGNAL=true               # 必须是 AI 相关内容才入选
 
 # Notion（可选，不用可以留空）
 NOTION_API_KEY=
@@ -129,8 +158,11 @@ NOTION_DATABASE_ID=
 配置完成后，每次运行只需要一行命令：
 
 ```bash
-# 发送邮件（最常用）
+# 默认：先发审核邮件到 reviewer（student+technician 两封）
 ./.venv/bin/python main.py --output email
+
+# 审核通过后：正式发送给其他收件人
+./.venv/bin/python main.py --output email --approve-send
 
 # 预览效果，不真正发送（测试用）
 ./.venv/bin/python main.py --dry-run --output email
@@ -153,6 +185,7 @@ NOTION_DATABASE_ID=
 | `--output notion` | 推送到 Notion | 有 Notion 配置时 |
 | `--output both` | 邮件 + Markdown + Notion 都做 | 完整输出 |
 | `--dry-run` | 不真正发邮件，只在终端显示结果 | 测试、调试 |
+| `--approve-send` | 审核通过后执行正式群发 | 第二步发送 |
 | `--skip-dynamic` | 跳过需要浏览器的动态网站 | 运行慢时加速 |
 | `--skip-llm-filter` | 跳过 AI 二次相关性校验 | 文章数量太少时 |
 | `--mock` | 不调用 AI，使用模拟数据 | 测试邮件格式 |
@@ -167,6 +200,8 @@ NOTION_DATABASE_ID=
 | 来源类型 | 例子 |
 |---------|------|
 | 德国工业研究机构 | Fraunhofer IPA、DFKI、TUM |
+| 汽车媒体/车厂技术源 | Volkswagen、BMW、Mercedes、Automotive News Europe、SAE |
+| 中国工业与AI媒体/机构 | 36Kr、机器之心、高工机器人、甲子光年、MIIT、信通院、BYD |
 | 行业媒体 | VDI Nachrichten、Handelsblatt |
 | 大厂官方博客 | Siemens、ABB、Bosch、Google Cloud |
 | 学术论文预印本 | arXiv（cs.AI、cs.SY） |
@@ -184,7 +219,13 @@ NOTION_DATABASE_ID=
 
 ### 文章数量太少（0 篇或 1-2 篇）
 1. 加 `--skip-llm-filter` 绕过 AI 二次过滤，看关键词过滤是否正常
-2. 检查网络连接，部分德国网站在中国大陆可能需要代理
+2. 检查 `REQUIRE_AI_SIGNAL=true` 是否过严；若做探索可临时关闭
+3. 检查网络连接，部分德国网站在中国大陆可能需要代理
+
+### 中文来源在英文/德文模板里显示不对
+1. 系统已要求中文来源必须翻译到模板语言（Student=EN, Technician=DE）
+2. 若仍出现混语，先重跑一次（模型可能返回不完整字段）
+3. 如需强制更严格，可在分析提示词中提升翻译约束
 
 ### AI 分析质量差或运行很慢
 1. 检查 Ollama 是否在运行：`ollama list`
