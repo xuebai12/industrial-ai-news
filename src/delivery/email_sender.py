@@ -240,12 +240,10 @@ EMAIL_TEMPLATE = Template(
     </div>
     {% endif %}
 
-    {% if not technician_mode %}
     <div class="source">
       {{ labels.source_label }}: {{ article.source_name }} |
       <a href="{{ article.source_url }}">{{ labels.link_label }}</a>
     </div>
-    {% endif %}
   </div>
     {% endfor %}
   </div>
@@ -365,7 +363,12 @@ def _extract_technician_highlights(text: str, limit: int = 4) -> list[str]:
 
 
 def _extract_compact_points(text: str, limit: int = 3, max_words: int = 10) -> list[str]:
-    """Extract compact German bullet points for technician focus cards."""
+    """Extract compact German bullet points for technician focus cards.
+
+    Note:
+        We keep complete sentences for readability in email templates and
+        intentionally avoid word-level hard truncation.
+    """
     raw = (text or "").strip()
     if not raw:
         return []
@@ -380,9 +383,6 @@ def _extract_compact_points(text: str, limit: int = 3, max_words: int = 10) -> l
         cleaned = re.sub(r"^(?:\d+[\.\)]\s*)", "", part).strip(" []{}\"'")
         if not cleaned:
             continue
-        words = cleaned.split()
-        if len(words) > max_words:
-            cleaned = " ".join(words[:max_words]).rstrip(" ,;:.") + "."
         key = cleaned.casefold()
         if key in seen:
             continue

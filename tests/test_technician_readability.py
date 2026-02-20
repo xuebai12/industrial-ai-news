@@ -82,7 +82,7 @@ def test_render_digest_technician_mode_styles():
     assert "class=\"quick-card green\"" not in html
     assert "Weniger Stillstand und bessere Planbarkeit in der Wartung." in html
     assert "Wie ein Fitness-Tracker fuer Maschinen:" in html
-    assert "Quelle:" not in html
+    assert "Quelle:" in html
 
 
 def test_render_digest_technician_focus_lists_are_compact_and_bounded():
@@ -106,6 +106,24 @@ def test_render_digest_technician_focus_lists_are_compact_and_bounded():
     assert html.count("<ul class=\"focus-list\">") == 1
     assert html.count("<ol class=\"mechanism-list\">") == 1
     assert "Kernmechanismus" in html
+
+
+def test_render_digest_focus_points_keep_full_sentences_without_word_cut():
+    class Profile:
+        persona = "technician"
+        language = "de"
+
+    article = _make_article()
+    article.summary_de = (
+        "Diese Arbeit stellt STDSH-MARL vor, ein skalierbares Multi-Agent Deep Reinforcement Learning Verfahren."
+    )
+    article.german_context = (
+        "Relevant fuer deutsche Smart-City-Initiativen und OePNV-Priorisierung in urbanen Korridoren."
+    )
+    article.technician_analysis_de = "Das Modell erkennt Muster in Echtzeitdaten und steuert den Ablauf fruehzeitig."
+    html = render_digest([article], "2026-02-19", Profile())
+    assert "Multi-Agent Deep Reinforcement Learning Verfahren." in html
+    assert "OePNV-Priorisierung in urbanen Korridoren." in html
 
 
 def test_render_digest_technician_focus_lists_use_german_fallback_when_too_short():

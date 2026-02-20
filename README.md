@@ -27,7 +27,28 @@
 
 ---
 
-## 👥 会发给谁？发什么内容？
+## � 效果展示 (Showcase)
+
+系统生成的交付物经过结构化整理，方便不同读者群体快速获取核心信息：
+
+### 1. Notion 知识库自动化沉淀
+文章经过 AI 分析后，会自动转化为结构化数据写入 Notion，包含以下关键字段：
+- **标题**、**Score**（相关性评分1-5分）、**日期**
+- **类别 / 标签**（如 Industrial AI, MARL, Automotive 等）
+- **AI 摘要**（提炼出来的核心技术要点或机制说明）
+
+![Notion 展示](docs/notion_preview.png)
+
+### 2. 定制化排版的邮件订阅 (以 Technician 技师版为例)
+针对非研发人员的邮件订阅，采用了清晰的大小色块设计，减轻长文本阅读疲劳：
+- **KERNFOKUS（核心关注点）**：具有极高对比度的侧边栏引导，采用简短的无序列表（Bullet points），快速说明这项技术在工业 4.0 的价值，如 Predictive Maintenance（预测性维护）。
+- **KERNMECHANISMUS（核心机制）**：采用带颜色的编号列表（Numbered list），大量使用生动通俗的比喻（如“像机器的运动手环”、“像私人医生”）解释复杂的 AI 工作原理。
+
+![Email 展示](docs/email_preview.png)
+
+---
+
+## �👥 会发给谁？发什么内容？
 
 系统支持**多个收件人画像**，每个画像收到不同风格的邮件：
 
@@ -241,6 +262,11 @@ YOUTUBE_API_KEY=
 也可以直接在浏览器里打开 `output/newsletter_preview_technician.html`
 
 ---
+审核发送（先给你）
+./.venv/bin/python /Users/baixue/news/main.py --output email
+审核通过后正式发送（给其他收件人）
+./.venv/bin/python /Users/baixue/news/main.py --output email --approve-send
+
 
 ## 📊 运行日志
 
