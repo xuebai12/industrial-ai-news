@@ -5,6 +5,7 @@
 """
 
 import logging
+import os
 import smtplib
 import re
 import html
@@ -227,6 +228,23 @@ def _pick_secondary_summary(article: AnalyzedArticle, lang: str) -> str:
     return article.summary_en if article.summary_en != article.summary_zh else ""
 
 
+def _pick_title_for_persona(article: AnalyzedArticle, persona: str) -> str:
+    """Return the appropriate article title for a given persona.
+
+    Args:
+        article: The analyzed article containing multi-language titles.
+        persona: Recipient persona ("student", "technician", or "").
+
+    Returns:
+        Title string in the most appropriate language for the persona.
+    """
+    if persona == "student":
+        return article.title_en or article.title_zh or "N/A"
+    if persona == "technician":
+        return article.title_de or "Deutscher Titel nicht verfügbar"
+    return article.title_zh or article.title_en or "N/A"
+
+
 def _pick_explanation(article: AnalyzedArticle, persona: str) -> str:
     """Select persona-specific explanation text with stable language preference."""
     if persona == "technician":
@@ -242,7 +260,15 @@ def _pick_explanation(article: AnalyzedArticle, persona: str) -> str:
 
 
 def _localize_context_for_technician(text: str) -> str:
-    """Map common structured English labels to German for technician digest."""
+    """Map common structured English field labels to German for the technician digest.
+
+    Args:
+        text: Raw context string, potentially containing English label prefixes.
+
+    Returns:
+        Context string with English labels replaced by German equivalents.
+        Falls back to a German placeholder when the input is empty.
+    """
     value = (text or "").strip()
     if not value:
         return "Kein Anwendungskontext verfügbar."
@@ -258,7 +284,15 @@ def _localize_context_for_technician(text: str) -> str:
 
 
 def _simplify_for_beginner_de(text: str) -> str:
-    """Replace hard technical terms with beginner-friendly wording."""
+    """Replace hard technical abbreviations with plain-German wording for beginners.
+
+    Args:
+        text: German text potentially containing technical abbreviations.
+
+    Returns:
+        Text with known abbreviations replaced by beginner-friendly terms.
+        Returns empty string when the input is empty.
+    """
     value = (text or "").strip()
     if not value:
         return ""
@@ -277,7 +311,17 @@ def _simplify_for_beginner_de(text: str) -> str:
 
 
 def _emphasize_sentence_leads_html(text: str) -> str:
-    """Bold the leading keyword for each sentence/line to improve scanability."""
+    """Bold the leading keyword of each sentence to improve scanability.
+
+    Each sentence or line is split and its first token is wrapped in
+    ``<strong>`` tags. Purely punctuation-only fragments are emitted as-is.
+
+    Args:
+        text: Plain text to transform.
+
+    Returns:
+        HTML string with sentence leads bolded and sentences joined by ``<br>``.
+    """
     value = (text or "").strip()
     if not value:
         return ""
@@ -353,6 +397,14 @@ def _extract_daily_keywords(
 
 
 def _normalize_theme(category_tag: str) -> str:
+    """Map a free-form category tag to one of the canonical theme buckets.
+
+    Args:
+        category_tag: Raw category string from the analyzed article.
+
+    Returns:
+        One of the canonical theme names used by ``_group_articles_by_theme``.
+    """
     value = (category_tag or "").strip().casefold()
     if (
         "policy" in value
@@ -422,7 +474,17 @@ def _group_articles_by_theme(rendered_articles: list[dict[str, str]], max_per_gr
 def render_digest(
     articles: list[AnalyzedArticle], today: str | None = None, profile: object | None = None
 ) -> str:
-    """Render the daily digest as HTML (渲染 HTML 摘要)."""
+    """Render the daily digest as an HTML email body.
+
+    Args:
+        articles: LLM-analyzed articles to include in the digest.
+        today: Date string in ``YYYY-MM-DD`` format. Defaults to today.
+        profile: ``RecipientProfile`` instance controlling language and persona.
+            When ``None`` the Chinese / default persona is used.
+
+    Returns:
+        Fully rendered HTML string ready to attach to a MIME message.
+    """
     if today is None:
         today = date.today().strftime("%Y-%m-%d")
 
@@ -508,7 +570,16 @@ def render_digest(
 def render_digest_text(
     articles: list[AnalyzedArticle], today: str | None = None, profile: object | None = None
 ) -> str:
-    """Render the daily digest as plain text (渲染纯文本摘要 - 用于 dry-run 或邮件备选部分)."""
+    """Render the daily digest as plain text (for dry-runs or MIME plain-text part).
+
+    Args:
+        articles: LLM-analyzed articles to include in the digest.
+        today: Date string in ``YYYY-MM-DD`` format. Defaults to today.
+        profile: ``RecipientProfile`` instance controlling language and persona.
+
+    Returns:
+        Plain-text digest string.
+    """
     if today is None:
         today = date.today().strftime("%Y-%m-%d")
     persona = str(getattr(profile, "persona", "")).strip().lower() if profile else ""
@@ -541,12 +612,7 @@ def render_digest_text(
 
     grouped_source: list[dict[str, str]] = []
     for article in articles:
-        if persona == "student":
-            title = article.title_en or article.title_zh or "N/A"
-        elif persona == "technician":
-            title = article.title_de or "Deutscher Titel nicht verfügbar"
-        else:
-            title = article.title_zh or article.title_en or "N/A"
+        title = _pick_title_for_persona(article, persona)
         grouped_source.append({"category_tag": article.category_tag, "title": title})
     grouped = _group_articles_by_theme(grouped_source, max_per_group=5)
 
@@ -558,12 +624,7 @@ def render_digest_text(
         lines.append("")
 
     for article in articles:
-        if persona == "student":
-            title = article.title_en or article.title_zh or "N/A"
-        elif persona == "technician":
-            title = article.title_de or "Deutscher Titel nicht verfügbar"
-        else:
-            title = article.title_zh or article.title_en or "N/A"
+        title = _pick_title_for_persona(article, persona)
         application = article.german_context or "N/A"
         if persona == "technician":
             application = _localize_context_for_technician(application)
@@ -577,8 +638,20 @@ def render_digest_text(
     return "\n".join(lines)
 
 
-def send_email(articles: list[AnalyzedArticle], today: str | None = None, profile: object | None = None) -> bool:
-    """Send the daily digest email via SMTP (发送邮件)."""
+def send_email(
+    articles: list[AnalyzedArticle], today: str | None = None, profile: object | None = None
+) -> bool:
+    """Send the daily digest email via SMTP.
+
+    Args:
+        articles: LLM-analyzed articles to include in the digest.
+        today: Date string in ``YYYY-MM-DD`` format. Defaults to today.
+        profile: ``RecipientProfile`` instance containing email address,
+            language preference, and persona.
+
+    Returns:
+        ``True`` if the email was delivered successfully, ``False`` otherwise.
+    """
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, EMAIL_TO]):
         logger.warning("[EMAIL] SMTP not configured, skipping email delivery")
         return False
@@ -624,17 +697,30 @@ def send_email(articles: list[AnalyzedArticle], today: str | None = None, profil
         logger.info("[EMAIL] ✅ Digest sent successfully")
         return True
 
-    except Exception as e:
-        logger.error(f"[EMAIL] Failed to send: {e}")
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error("[EMAIL] SMTP 认证失败，请检查用户名和密码: %s", e)
+        return False
+    except smtplib.SMTPException as e:
+        logger.error("[EMAIL] SMTP 发送失败: %s", e)
+        return False
+    except OSError as e:
+        logger.error("[EMAIL] 网络连接错误: %s", e)
         return False
 
 
 def save_digest_markdown(
     articles: list[AnalyzedArticle], output_dir: str = "output", today: str | None = None
 ) -> str:
-    """Save digest as a Markdown file (生成 Markdown 文件 - 邮件的替代方案)."""
-    import os
+    """Save the digest as a Markdown file.
 
+    Args:
+        articles: LLM-analyzed articles to include.
+        output_dir: Directory to write the file into. Created if absent.
+        today: Date string in ``YYYY-MM-DD`` format. Defaults to today.
+
+    Returns:
+        Absolute path to the saved Markdown file.
+    """
     if today is None:
         today = date.today().strftime("%Y-%m-%d")
 
