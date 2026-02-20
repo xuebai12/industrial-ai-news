@@ -127,15 +127,20 @@ EMAIL_TEMPLATE = Template(
               padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
   .article h3 { margin: 8px 0 6px; font-size: 17px; color: #0f172a; }
   .subtle { font-size: 12px; color: #667085; margin-bottom: 10px; }
-  .quick-grid { width: 100%; border-collapse: separate; border-spacing: 8px; margin: 6px 0 10px; }
-  .quick-grid-title { font-size: 12px; font-weight: 700; color: #0b3c7f; text-transform: uppercase; letter-spacing: 0.2px; margin: 6px 0 2px; }
-  .quick-cell { width: 50%; vertical-align: top; }
-  .quick-card { border-radius: 8px; padding: 12px; min-height: 84px; }
+  .quick-grid-title { font-size: 12px; font-weight: 700; color: #0b3c7f; text-transform: uppercase; letter-spacing: 0.2px; margin: 4px 0 2px; }
+  .stack-cards { margin: 6px 0 10px; }
+  .quick-card { border-radius: 10px; padding: 12px; min-height: 0; }
+  .quick-card + .quick-card { margin-top: 10px; }
   .quick-card.blue { background: #eff6ff; border-left: 8px solid #1d4ed8; color: #1e3a8a; }
-  .quick-card.green { background: #f0fdf4; border-left: 8px solid #16a34a; color: #14532d; }
   .quick-card.orange { background: #fff7ed; border-left: 8px solid #ea580c; color: #9a3412; }
-  .quick-card .label { margin-bottom: 8px; color: #111827; }
-  .quick-card .value { font-size: 15px; line-height: 1.75; white-space: pre-line; }
+  .quick-card .label { margin-bottom: 8px; color: #111827; display: block; }
+  .quick-card .value { font-size: 15px; line-height: 1.75; white-space: pre-line; margin: 0; }
+  .focus-list { margin: 0; padding-left: 18px; white-space: normal; font-size: 15px; line-height: 1.5; letter-spacing: 0; }
+  .focus-list li { margin: 0 0 6px; }
+  .focus-list li:last-child { margin-bottom: 0; }
+  .mechanism-list { margin: 0; padding-left: 20px; font-size: 15px; line-height: 1.5; letter-spacing: 0; }
+  .mechanism-list li { margin: 0 0 6px; }
+  .mechanism-list li:last-child { margin-bottom: 0; }
   .focus-panel { margin: 10px 0 14px; background: #f8fafc; border: 1px solid #dbe3ee; border-radius: 10px; padding: 10px; }
   .focus-title { font-size: 12px; font-weight: 700; color: #0b3c7f; text-transform: uppercase; letter-spacing: 0.2px; margin-bottom: 8px; }
   .focus-cell { width: 50%; vertical-align: top; padding: 4px; }
@@ -157,6 +162,8 @@ EMAIL_TEMPLATE = Template(
   body.technician-mode strong, .technician-mode strong { font-size: 17px; }
   @media (max-width: 640px) {
     body { padding: 12px; }
+    .stack-cards { margin: 6px 0 8px; }
+    .quick-card { min-height: auto; }
     body.technician-mode .header, .technician-mode .header { padding: 16px; }
     body.technician-mode .article, .technician-mode .article { padding: 12px; border-width: 2px; }
     body.technician-mode .row, .technician-mode .row { margin: 0 0 30px; padding: 6px; }
@@ -198,23 +205,23 @@ EMAIL_TEMPLATE = Template(
 
     {% if technician_mode %}
     <div class="quick-grid-title">{{ labels.combined_focus_label }}</div>
-    <table class="quick-grid" role="presentation" cellpadding="0" cellspacing="0" border="0">
-      <tr>
-        <td class="quick-cell">
-          <div class="quick-card blue">
-            <div class="value">{{ article.tech_highlights }}</div>
-          </div>
-        </td>
-        <td class="quick-cell">
-          <div class="quick-card green">
-            <div class="value">{{ article.app_value }}</div>
-          </div>
-        </td>
-      </tr>
-    </table>
-    <div class="quick-card orange">
-      <span class="label">{{ labels.core_mechanism_label }}</span>
-      <div class="value">{{ article.core_mechanism }}</div>
+    <div class="stack-cards">
+      <div class="quick-card blue">
+        <span class="label">{{ labels.combined_focus_label }}</span>
+        <ul class="focus-list">
+          {% for point in article.tech_focus_list %}
+          <li>{{ point }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="quick-card orange">
+        <span class="label">{{ labels.core_mechanism_label }}</span>
+        <ol class="mechanism-list">
+          {% for point in article.mechanism_steps %}
+          <li>{{ point }}</li>
+          {% endfor %}
+        </ol>
+      </div>
     </div>
     {% else %}
     <div class="row">
@@ -334,14 +341,14 @@ def _extract_technician_highlights(text: str, limit: int = 4) -> list[str]:
     if not raw:
         return []
     parts = [
-        p.strip(" -•\t,;:")
+        p.strip(" -•\t,;:[]{}\"'")
         for p in re.split(r"\n+|(?<=[.!?])\s+", raw)
-        if p.strip(" -•\t,;:")
+        if p.strip(" -•\t,;:[]{}\"'")
     ]
     highlights: list[str] = []
     seen: set[str] = set()
     for part in parts:
-        cleaned = re.sub(r"^(?:\d+[\.\)]\s*)", "", part).strip()
+        cleaned = re.sub(r"^(?:\d+[\.\)]\s*)", "", part).strip(" []{}\"'")
         if not cleaned:
             continue
         words = cleaned.split()
@@ -357,6 +364,35 @@ def _extract_technician_highlights(text: str, limit: int = 4) -> list[str]:
     return highlights
 
 
+def _extract_compact_points(text: str, limit: int = 3, max_words: int = 10) -> list[str]:
+    """Extract compact German bullet points for technician focus cards."""
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    parts = [
+        p.strip(" -•\t,;:[]{}\"'")
+        for p in re.split(r"\n+|(?<=[.!?])\s+", raw)
+        if p.strip(" -•\t,;:[]{}\"'")
+    ]
+    points: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        cleaned = re.sub(r"^(?:\d+[\.\)]\s*)", "", part).strip(" []{}\"'")
+        if not cleaned:
+            continue
+        words = cleaned.split()
+        if len(words) > max_words:
+            cleaned = " ".join(words[:max_words]).rstrip(" ,;:.") + "."
+        key = cleaned.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        points.append(html.escape(cleaned))
+        if len(points) >= limit:
+            break
+    return points
+
+
 def _pair_highlights(items: list[str]) -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = []
     for idx in range(0, len(items), 2):
@@ -364,6 +400,56 @@ def _pair_highlights(items: list[str]) -> list[tuple[str, str]]:
         right = items[idx + 1] if idx + 1 < len(items) else ""
         rows.append((left, right))
     return rows
+
+
+def _extract_mechanism_steps(text: str, limit: int = 3) -> list[str]:
+    """Extract short, beginner-friendly mechanism steps for technician cards."""
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    parts = [
+        p.strip(" -•\t,;:[]{}\"'")
+        for p in re.split(r"\n+|(?<=[.!?])\s+", raw)
+        if p.strip(" -•\t,;:[]{}\"'")
+    ]
+    steps: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        cleaned = re.sub(r"^(?:\d+[\.\)]\s*)", "", part).strip(" []{}\"'")
+        if not cleaned:
+            continue
+        words = cleaned.split()
+        if len(words) > 18:
+            cleaned = " ".join(words[:18]).rstrip(" ,;:.") + "."
+        key = cleaned.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        steps.append(html.escape(cleaned))
+        if len(steps) >= limit:
+            break
+    return steps
+
+
+def _build_vivid_mechanism_steps(text: str) -> list[str]:
+    """Explain the mechanism with concrete analogies for non-technical readers."""
+    steps = _extract_mechanism_steps(text, limit=3)
+    if not steps:
+        return [
+            "Wie ein Fruehwarnsystem am Auto: Die Maschine meldet kleinste Warnzeichen sofort.",
+            "Wie ein persoenlicher Maschinenarzt: Das System lernt den gesunden Normalzustand.",
+            "Wie ein Wartungs-Kalender mit Vorwarnung: Eingriffe kommen geplant vor dem Ausfall.",
+        ]
+    metaphors = [
+        "Wie ein Fitness-Tracker fuer Maschinen",
+        "Wie ein persoenlicher Arzt fuer den Anlagenzustand",
+        "Wie ein Rauchmelder mit Vorwarnung fuer Ausfaelle",
+    ]
+    vivid: list[str] = []
+    for idx, step in enumerate(steps):
+        prefix = metaphors[idx] if idx < len(metaphors) else "Wie ein klares Leitsystem im Betrieb"
+        vivid.append(f"{prefix}: {step}")
+    return vivid
 
 
 def _localize_context_for_technician(text: str) -> str:
@@ -654,30 +740,41 @@ def render_digest(
             core_text = _simplify_for_beginner_de(core_text)
             context_text = _simplify_for_beginner_de(_pick_technician_application_value(article))
             simple_explanation = _simplify_for_beginner_de(simple_explanation)
-            highlight_rows = _pair_highlights(_extract_technician_highlights(core_text, limit=4))
+            scenario_text = " ".join(
+                seg for seg in [
+                    context_text,
+                    (article.german_context or "").strip(),
+                    (article.summary_de or "").strip(),
+                ]
+                if seg
+            ).strip()
+            tech_focus_list = _extract_compact_points(scenario_text, limit=3, max_words=10)
+            if len(tech_focus_list) < 2:
+                tech_focus_list.append("Einsatz im Betrieb: klare Anwendung an Linie, Anlage und Wartungsfenster.")
+            tech_focus_list = tech_focus_list[:3]
             # Keep plain text for better readability and stable Gmail rendering.
             core_text = html.escape(core_text)
             context_text = html.escape(context_text)
             simple_explanation = html.escape(simple_explanation)
-            flat_highlights: list[str] = []
-            for left, right in highlight_rows:
-                if left:
-                    flat_highlights.append(left)
-                if right:
-                    flat_highlights.append(right)
-            tech_highlights = "<br>".join(flat_highlights) or core_text
-            app_value = context_text
             core_mechanism_raw = (
                 article.technician_analysis_de
                 or article.summary_de
                 or "Keine Kernmechanik verfuegbar."
             )
             core_mechanism = html.escape(_simplify_for_beginner_de(core_mechanism_raw))
+            mechanism_steps = _build_vivid_mechanism_steps(core_mechanism_raw)
+            if not mechanism_steps:
+                mechanism_steps = [core_mechanism]
+            highlight_rows = []
+            tech_highlights = ""
+            app_value = ""
         else:
             highlight_rows = []
             tech_highlights = ""
             app_value = ""
             core_mechanism = ""
+            mechanism_steps = []
+            tech_focus_list = []
 
         rendered_articles.append(
             {
@@ -691,7 +788,9 @@ def render_digest(
                 "highlight_rows": highlight_rows,
                 "tech_highlights": tech_highlights,
                 "app_value": app_value,
+                "tech_focus_list": tech_focus_list,
                 "core_mechanism": core_mechanism,
+                "mechanism_steps": mechanism_steps,
                 "source_name": article.source_name,
                 "source_url": article.source_url,
             }
