@@ -509,8 +509,10 @@ Constraint (核心限制):
      Protection of Long-term Assets：强调在不泄露核心工艺数据前提下应用 AI，保护知识产权与长期资产。
 2. 双语对齐：关键术语保留德语和英文原词并附带中文注释。
 3. 输出结构要求（industry_analysis 对应 technician_analysis_de 字段）：
+   - technician_analysis_de 必须使用德语（German）输出。
    - 按三个支柱分点输出，避免泛泛而谈。
    - 每点包含“判断 + 工业影响 + 落地约束/前提”。
+   - 仅讨论行业决策与落地，不重复学生视角的原理讲解。
    - 优先给出机械制造场景下的可执行建议。
 
 这是背景设定。现在，作为分析师，请分析给定文章，并输出**纯 JSON**（无其他文字）。
@@ -528,7 +530,7 @@ JSON 格式:
     "german_context": "德方应用背景",
     "tool_stack": "使用的软件工具",
     "simple_explanation": "深度通俗解读(学生视角): 解释技术逻辑与痛点",
-    "technician_analysis_de": "Industry Analysis: Use the three pillars (Reliability & Determinism, Convergence of Physics & Digital, Protection of Long-term Assets)."
+    "technician_analysis_de": "Industry Analysis in German only: decision-making and implementation focus, structured by the three pillars."
 }
 
 类别选项: Digital Twin / Industry 4.0 / Simulation / AI / Research
@@ -542,7 +544,8 @@ SIMPLE_JSON_PROMPT = (
     '"core_tech_points", "german_context", "tool_stack", "simple_explanation", "technician_analysis_de". '
     "No explanation, no markdown, ONLY JSON. "
     "simple_explanation must stay student-friendly and explain technical logic clearly. "
-    "technician_analysis_de must be industry-focused and structured by three pillars: "
+    "technician_analysis_de must be in German, industry-focused on decision-making and implementation only, "
+    "and structured by three pillars: "
     "Reliability & Determinism, Convergence of Physics & Digital, Protection of Long-term Assets."
 )
 
@@ -607,7 +610,8 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
                     'core_tech_points,german_context,tool_stack,simple_explanation,technician_analysis_de. '
                     'Use empty string if unknown. '
                     'simple_explanation must stay student-friendly. '
-                    'technician_analysis_de must be industry-focused with these three pillars: '
+                    'technician_analysis_de must be in German and only cover industry decision-making and implementation, '
+                    'with these three pillars: '
                     'Reliability & Determinism, Convergence of Physics & Digital, Protection of Long-term Assets.'
                 )
                 data = _call_and_parse(client, minimal_prompt, minimal_user_content)
