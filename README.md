@@ -177,20 +177,6 @@ NOTION_DATABASE_ID=
 ---
 
 ## 🔧 运行参数说明
-
-| 参数 | 作用 | 什么时候用 |
-|------|------|-----------|
-| `--output email` | 发送邮件 | 正常运行 |
-| `--output markdown` | 只生成本地 Markdown 文件 | 查看结果但不发邮件 |
-| `--output notion` | 推送到 Notion | 有 Notion 配置时 |
-| `--output both` | 邮件 + Markdown + Notion 都做 | 完整输出 |
-| `--dry-run` | 不真正发邮件，只在终端显示结果 | 测试、调试 |
-| `--approve-send` | 审核通过后执行正式群发 | 第二步发送 |
-| `--skip-dynamic` | 跳过需要浏览器的动态网站 | 运行慢时加速 |
-| `--skip-llm-filter` | 跳过 AI 二次相关性校验 | 文章数量太少时 |
-| `--mock` | 不调用 AI，使用模拟数据 | 测试邮件格式 |
-| `--strict` | 任何步骤出错就直接停止 | 生产环境 |
-
 ---
 
 ## 📰 数据来源
