@@ -11,17 +11,10 @@ import sys
 import time
 import traceback
 from dataclasses import asdict, dataclass, field
-from datetime import date, timedelta
+from datetime import date
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from config import (
-    DATA_SOURCES,
-    RECIPIENT_PROFILES,
-    YOUTUBE_FOCUS_CHANNELS_BY_REGION,
-    RSS_WEB_PRIORITY_SOURCES,
-    RSS_WEB_PRIORITY_ONLY,
-    validate_config,
-)
+from config import DATA_SOURCES, RECIPIENT_PROFILES, validate_config
 
 logger = logging.getLogger(__name__)
 
@@ -79,21 +72,6 @@ class PipelineResult:
     markdown_path: str = ""     # Markdown 报告路径
     notion_pushed: int = 0      # 推送到 Notion 的数量
     failures: list[StageFailure] = field(default_factory=list)  # 失败列表
-
-
-SENT_HISTORY_FILE = "sent_history.json"
-PROFILE_ARTICLE_TARGET = max(1, int(os.getenv("PROFILE_ARTICLE_TARGET", "5")))
-PROFILE_REPEAT_COOLDOWN_DAYS = max(0, int(os.getenv("PROFILE_REPEAT_COOLDOWN_DAYS", "7")))
-EMAIL_REVIEWER = os.getenv("EMAIL_REVIEWER", "baixue243@gmail.com").strip()
-ANALYSIS_FALLBACK_MARKERS = (
-    "analysis fallback",
-    "kein auswertbares modell-ergebnis verfügbar",
-    "模型未返回可解析的结构化结果",
-    "local model analysis failed",
-    "model analysis temporarily unavailable",
-    "auto fallback summary from source snippet",
-    "__analysis_fallback__",
-)
 
 
 def configure_logging(log_format: str) -> None:
@@ -167,14 +145,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="使用模拟数据进行 LLM 分析 (Use mock data for LLM analysis)",
     )
-    parser.add_argument(
-        "--approve-send",
-        action="store_true",
-        help=(
-            "邮件审核通过后执行正式发送。默认先发送审核邮件到 EMAIL_REVIEWER "
-            f"(default: {EMAIL_REVIEWER})"
-        ),
-    )
     return parser.parse_args(argv)
 
 
@@ -217,31 +187,6 @@ def _dedupe_articles(articles: list) -> list:
     return deduped
 
 
-def _is_fallback_analysis(article) -> bool:
-    fields = (
-        getattr(article, "core_tech_points", "") or "",
-        getattr(article, "simple_explanation", "") or "",
-        getattr(article, "technician_analysis_de", "") or "",
-        getattr(article, "summary_en", "") or "",
-        getattr(article, "tool_stack", "") or "",
-    )
-    blob = " ".join(fields).strip().lower()
-    if not blob:
-        return True
-    return any(marker in blob for marker in ANALYSIS_FALLBACK_MARKERS)
-
-
-def _drop_fallback_analysis(articles: list) -> tuple[list, int]:
-    kept = []
-    dropped = 0
-    for item in articles:
-        if _is_fallback_analysis(item):
-            dropped += 1
-            continue
-        kept.append(item)
-    return kept, dropped
-
-
 def _append_failure(
     result: PipelineResult, stage: str, error_type: str, message: str, source: str = ""
 ) -> None:
@@ -275,143 +220,6 @@ def _emit_summary(result: PipelineResult, output_dir: str) -> None:
         logger.info("[SUMMARY] Wrote error report: %s", error_path)
 
 
-def _article_key(article: object) -> str:
-    """构建文章唯一键，用于去重和历史记录。"""
-    url = _normalize_url(getattr(article, "source_url", "") or getattr(article, "url", ""))
-    if url:
-        return f"url:{url}"
-    source = str(getattr(article, "source_name", "") or getattr(article, "source", "")).strip().lower()
-    title = str(getattr(article, "title_zh", "") or getattr(article, "title", "")).strip().lower()
-    return f"title:{source}:{title}"
-
-
-def _article_score(article: object) -> int:
-    original = getattr(article, "original", None)
-    if original is not None:
-        return int(getattr(original, "relevance_score", 0) or 0)
-    return int(getattr(article, "relevance_score", 0) or 0)
-
-
-def _prioritize_sources(sources: list, priority_names: list[str], priority_only: bool = False) -> list:
-    """Prioritize sources by name with optional whitelist-only mode."""
-    priority_set = {name.strip().casefold() for name in priority_names if name.strip()}
-    if not priority_set:
-        return list(sources)
-    prioritized = [s for s in sources if str(getattr(s, "name", "")).strip().casefold() in priority_set]
-    if priority_only:
-        return prioritized
-    remaining = [s for s in sources if str(getattr(s, "name", "")).strip().casefold() not in priority_set]
-    return prioritized + remaining
-
-
-def _load_sent_history(path: str) -> dict[str, dict[str, str]]:
-    if not os.path.exists(path):
-        return {}
-    try:
-        with open(path, encoding="utf-8") as handle:
-            raw = json.load(handle)
-        profiles = raw.get("profiles", {}) if isinstance(raw, dict) else {}
-        if not isinstance(profiles, dict):
-            return {}
-        return {
-            str(persona): {str(k): str(v) for k, v in entries.items()}
-            for persona, entries in profiles.items()
-            if isinstance(entries, dict)
-        }
-    except Exception:
-        return {}
-
-
-def _save_sent_history(path: str, history: dict[str, dict[str, str]]) -> None:
-    _write_json(path, {"profiles": history})
-
-
-def _is_recent(
-    history: dict[str, dict[str, str]], persona: str, key: str, today: date, cooldown_days: int
-) -> bool:
-    persona_history = history.get(persona, {})
-    sent_on = persona_history.get(key, "")
-    if not sent_on:
-        return False
-    try:
-        sent_date = date.fromisoformat(sent_on)
-    except ValueError:
-        return False
-    return sent_date >= (today - timedelta(days=cooldown_days))
-
-
-def _select_articles_for_profile(
-    analyzed: list,
-    persona: str,
-    history: dict[str, dict[str, str]],
-    today: date,
-    target_count: int,
-    cooldown_days: int,
-    globally_used: set[str],
-) -> list:
-    def primary_match(item: object) -> bool:
-        personas = list(getattr(item, "target_personas", []) or [])
-        return persona in personas or (not personas and persona == "student")
-
-    primary = [a for a in analyzed if primary_match(a)]
-    secondary = [a for a in analyzed if not primary_match(a)]
-    primary.sort(key=_article_score, reverse=True)
-    secondary.sort(key=_article_score, reverse=True)
-
-    selected: list = []
-    selected_keys: set[str] = set()
-
-    def append_from(pool: list, *, allow_recent: bool, allow_global_dup: bool) -> None:
-        for item in pool:
-            if len(selected) >= target_count:
-                return
-            key = _article_key(item)
-            if key in selected_keys:
-                continue
-            if (not allow_global_dup) and key in globally_used:
-                continue
-            if (not allow_recent) and _is_recent(history, persona, key, today, cooldown_days):
-                continue
-            selected.append(item)
-            selected_keys.add(key)
-
-    # 优先级: 主画像且非近期重复 -> 主画像允许近期重复 -> 次画像非近期 -> 次画像允许近期
-    append_from(primary, allow_recent=False, allow_global_dup=False)
-    append_from(primary, allow_recent=True, allow_global_dup=False)
-    append_from(secondary, allow_recent=False, allow_global_dup=False)
-    append_from(secondary, allow_recent=True, allow_global_dup=False)
-    append_from(primary, allow_recent=True, allow_global_dup=True)
-    append_from(secondary, allow_recent=True, allow_global_dup=True)
-
-    for key in selected_keys:
-        globally_used.add(key)
-    return selected
-
-
-def _record_sent(
-    history: dict[str, dict[str, str]], persona: str, articles: list, today_iso: str
-) -> None:
-    persona_history = history.setdefault(persona, {})
-    for item in articles:
-        persona_history[_article_key(item)] = today_iso
-
-
-def _split_recipients(raw: str) -> list[str]:
-    return [item.strip() for item in (raw or "").split(",") if item.strip()]
-
-
-def _unique_recipients(items: list[str]) -> list[str]:
-    out: list[str] = []
-    seen: set[str] = set()
-    for item in items:
-        key = item.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(item)
-    return out
-
-
 def run_pipeline(args: argparse.Namespace) -> PipelineResult:
     """
     执行主流水线逻辑 (Execute Main Pipeline Logic)
@@ -425,8 +233,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
     6. Deliver (交付)
     """
     os.makedirs(args.output_dir, exist_ok=True)
-    today_obj = date.today()
-    today = today_obj.strftime("%Y-%m-%d")
+    today = date.today().strftime("%Y-%m-%d")
     run_id = f"{today}-{int(time.time())}"
     started = time.perf_counter()
 
@@ -461,11 +268,6 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
 
         # 2.1 RSS 抓取
         rss_sources = [s for s in DATA_SOURCES if s.source_type == "rss"]
-        rss_sources = _prioritize_sources(
-            rss_sources,
-            priority_names=RSS_WEB_PRIORITY_SOURCES,
-            priority_only=RSS_WEB_PRIORITY_ONLY,
-        )
         for source in rss_sources:
             try:
                 articles = scrape_rss(
@@ -483,13 +285,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
                     raise
 
         # 2.2 网页抓取 (BeautifulSoup)
-        web_sources = [s for s in DATA_SOURCES if s.source_type == "web"]
-        web_sources = _prioritize_sources(
-            web_sources,
-            priority_names=RSS_WEB_PRIORITY_SOURCES,
-            priority_only=RSS_WEB_PRIORITY_ONLY,
-        )
-        web_articles = scrape_web_sources(args.max_articles, sources=web_sources)
+        web_articles = scrape_web_sources(args.max_articles)
         all_articles.extend(web_articles)
 
         # 2.3 动态抓取 (Playwright)
@@ -500,51 +296,6 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
             all_articles.extend(dynamic_articles)
         else:
             logger.info("[SCRAPE] Skipping dynamic scrapers (--skip-dynamic)")
-
-        # 2.4 YouTube 抓取
-        youtube_sources = [s for s in DATA_SOURCES if s.source_type == "youtube"]
-        if youtube_sources:
-            try:
-                from src.scrapers.youtube_scraper import scrape_youtube, scrape_youtube_focus_channels
-                for source in youtube_sources:
-                    try:
-                        region = getattr(source, "region_code", "")
-                        focus_channels = YOUTUBE_FOCUS_CHANNELS_BY_REGION.get(region, [])
-                        focus_videos = scrape_youtube_focus_channels(
-                            name=source.name,
-                            query=source.url,
-                            language=source.language,
-                            category=source.category,
-                            channel_ids=focus_channels,
-                            max_items=args.max_articles,
-                            region_code=region,
-                            video_duration="medium",
-                            safe_search="moderate",
-                        )
-                        all_articles.extend(focus_videos)
-
-                        remaining = max(0, args.max_articles - len(focus_videos))
-                        if remaining == 0:
-                            continue
-                        yt_videos = scrape_youtube(
-                            name=source.name,
-                            url=source.url, # passed as query
-                            language=source.language,
-                            category=source.category,
-                            max_items=remaining,
-                            region_code=region,
-                            video_duration="medium",
-                            safe_search="moderate",
-                        )
-                        all_articles.extend(yt_videos)
-                    except Exception as exc:
-                         _append_failure(result, "scrape", "YOUTUBE", str(exc), source=source.name)
-                         logger.error("[SCRAPE] YouTube source failed: %s | %s", source.name, exc)
-            except ImportError:
-                 logger.warning("[SCRAPE] google-api-python-client not installed. Skipping YouTube.")
-            except Exception as exc:
-                 _append_failure(result, "scrape", "YOUTUBE_INIT", str(exc))
-                 logger.error("[SCRAPE] Failed to initialize YouTube scraper: %s", exc)
 
     except Exception as exc:
         _append_failure(result, "scrape", "SCRAPE", str(exc))
@@ -599,26 +350,10 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         result.duration_seconds = round(time.perf_counter() - started, 3)
         return result
 
-    cleaned_analyzed, dropped_fallback = _drop_fallback_analysis(analyzed)
-    if dropped_fallback:
-        logger.warning(
-            "[ANALYZE] Dropped %s fallback articles due to invalid LLM output",
-            dropped_fallback,
-        )
-
-    # Graceful degradation: if all items are fallback analyses, keep them so
-    # downstream delivery can still produce a useful digest instead of hard stop.
-    if not cleaned_analyzed and analyzed:
-        cleaned_analyzed = analyzed
-        logger.warning(
-            "[ANALYZE] All %s analyses were fallback; continuing with fallback content",
-            len(analyzed),
-        )
-
-    result.analyzed_count = len(cleaned_analyzed)
-    if not cleaned_analyzed:
+    result.analyzed_count = len(analyzed)
+    if not analyzed:
         result.success = not args.strict
-        result.exit_reason = "analysis produced no usable results"
+        result.exit_reason = "analysis produced no results"
         result.duration_seconds = round(time.perf_counter() - started, 3)
         return result
 
@@ -631,103 +366,49 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         )
 
         if args.dry_run:
-            print("\n" + render_digest_text(cleaned_analyzed, today))
+            print("\n" + render_digest_text(analyzed, today))
             logger.info("[DELIVERY] Dry run output printed")
         else:
             if args.output in ("email", "both"):
-                history_path = os.path.join(args.output_dir, SENT_HISTORY_FILE)
-                sent_history = _load_sent_history(history_path)
-                used_today_keys: set[str] = set()
-                review_mode = not args.approve_send
-                reviewer = EMAIL_REVIEWER
-                logger.info(
-                    "[DELIVERY] Email mode: %s (reviewer=%s)",
-                    "review-only" if review_mode else "approved-send",
-                    reviewer,
-                )
-
                 # Multi-channel delivery based on profiles
                 for profile in RECIPIENT_PROFILES:
                     if profile.delivery_channel not in ("email", "both"):
                         continue
 
-                    profile_articles = _select_articles_for_profile(
-                        analyzed=cleaned_analyzed,
-                        persona=profile.persona,
-                        history=sent_history,
-                        today=today_obj,
-                        target_count=PROFILE_ARTICLE_TARGET,
-                        cooldown_days=PROFILE_REPEAT_COOLDOWN_DAYS,
-                        globally_used=used_today_keys,
-                    )
+                    # Filter articles for this persona
+                    # Logic: Include if article is explicitly tagged for this persona,
+                    # OR if article has no tags and this is the default "student" persona.
+                    profile_articles = [
+                        a for a in analyzed
+                        if profile.persona in (a.target_personas or [])
+                        or (not a.target_personas and profile.persona == "student")
+                    ]
 
                     if not profile_articles:
                         logger.info(f"[DELIVERY] No articles for profile '{profile.name}'")
                         continue
 
-                    if len(profile_articles) < PROFILE_ARTICLE_TARGET:
-                        logger.warning(
-                            "[DELIVERY] Profile '%s' has %s/%s articles after de-dup & cooldown",
-                            profile.name,
-                            len(profile_articles),
-                            PROFILE_ARTICLE_TARGET,
-                        )
-                    logger.info(
-                        "[DELIVERY] Sending %s articles to '%s' (target=%s, cooldown=%s days)",
-                        len(profile_articles),
-                        profile.name,
-                        PROFILE_ARTICLE_TARGET,
-                        PROFILE_REPEAT_COOLDOWN_DAYS,
-                    )
-                    if review_mode:
-                        recipient_override = reviewer
-                        subject_prefix_override = "[Review] "
-                    else:
-                        original_recipients = _split_recipients(getattr(profile, "email", ""))
-                        filtered_recipients = [
-                            item
-                            for item in original_recipients
-                            if item.casefold() != reviewer.casefold()
-                        ]
-                        recipient_override = ",".join(_unique_recipients(filtered_recipients))
-                        subject_prefix_override = ""
-                        if not recipient_override:
-                            logger.info(
-                                "[DELIVERY] Skip profile '%s': no non-review recipients in approved mode",
-                                profile.name,
-                            )
-                            continue
+                    logger.info(f"[DELIVERY] Sending {len(profile_articles)} articles to '{profile.name}'")
+                    success = send_email(profile_articles, today, profile=profile)
 
-                    success = send_email(
-                        profile_articles,
-                        today,
-                        profile=profile,
-                        recipient_override=recipient_override,
-                        subject_prefix_override=subject_prefix_override,
-                    )
-
-                    if success and not review_mode:
-                        _record_sent(sent_history, profile.persona, profile_articles, today)
                     if args.strict and not success:
                          logger.error(f"[DELIVERY] Failed to send email to '{profile.name}'")
                          # In strict mode, maybe we should raise? But let's verify other profiles first or fail hard.
                          # User requested "fail run on any critical stage error"
                          raise RuntimeError(f"Email delivery failed for profile {profile.name}")
 
-                if not review_mode:
-                    _save_sent_history(history_path, sent_history)
                 result.email_sent = True # Mark as sent if we got here (individual failures raised if strict)
 
             if args.output in ("markdown", "both"):
                 result.markdown_path = save_digest_markdown(
-                    cleaned_analyzed, today=today, output_dir=args.output_dir
+                    analyzed, today=today, output_dir=args.output_dir
                 )
                 logger.info("[DELIVERY] Markdown digest saved: %s", result.markdown_path)
 
             if args.output in ("notion", "both"):
                 from src.delivery.notion_sender import push_to_notion
 
-                result.notion_pushed = push_to_notion(cleaned_analyzed, today)
+                result.notion_pushed = push_to_notion(analyzed, today)
                 logger.info("[DELIVERY] Notion pushed: %s", result.notion_pushed)
     except Exception as exc:
         _append_failure(result, "delivery", "DELIVERY", str(exc))

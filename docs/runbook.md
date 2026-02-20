@@ -6,18 +6,19 @@
 python main.py --output email --skip-dynamic --skip-llm-filter --output-dir output
 ```
 
-## Manual run (scheduled disabled)
+## Stable scheduled run
 
 ```bash
-./.venv/bin/python main.py --output both --output-dir output --log-format json
-./.venv/bin/python ops_dashboard.py --output-dir output --days 7
+./run_scheduled_dispatch.sh
 ```
 
-Current mode:
+This entrypoint enforces:
 
-- no scheduler entrypoint is used
-- dispatch is triggered manually only
-- `run_scheduled_dispatch.sh` now exits with a disabled notice
+- fixed `cwd` (`/Users/baixue/news`)
+- fixed runtime (`.venv/bin/python`)
+- single-run lock (prevents overlapping jobs)
+- unified log output (`logs/scheduled-*.log`)
+- post-run ops dashboard + threshold alerts
 
 For strict mode in automation:
 
@@ -47,26 +48,6 @@ Notion-specific categories inside delivery logs:
 - `SCHEMA`: database property mismatch.
 - `RATE_LIMIT`: Notion throttling.
 - `API` / `UNKNOWN`: other provider or client errors.
-
-## Relevance filter guardrails
-
-The filter now applies medium-strict industrial context gating to reduce theory-only noise:
-
-- `STRICT_INDUSTRY_CONTEXT_GATING=true` (default):
-  theory-risk items without industrial context are down-ranked (`score <= 1`).
-- `FALLBACK_REQUIRE_INDUSTRY_CONTEXT=true` (default):
-  minimum-volume fallback only adds items that either:
-  - match industrial-context keywords, or
-  - come from priority industrial sources.
-
-Config knobs in `config.py`:
-
-- `INDUSTRY_CONTEXT_KEYWORDS`
-- `THEORY_ONLY_RISK_KEYWORDS`
-- `THEORY_CONTEXT_DEPENDENT_KEYWORDS`
-- `PRIORITY_INDUSTRIAL_SOURCES`
-- `STRICT_INDUSTRY_CONTEXT_GATING`
-- `FALLBACK_REQUIRE_INDUSTRY_CONTEXT`
 
 ## Common SOP
 

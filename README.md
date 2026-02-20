@@ -1,294 +1,207 @@
-# 🏭 Industrial AI 每日情报系统
+# 🏭 Industrial AI News Pipeline | 工业 AI 每日情报流
 
-> 每天早上自动收集工业 AI 领域最新资讯，用 AI 分析整理，再通过邮件发送给你。
-> 就像一个不睡觉的研究助理，帮你读完所有值得读的文章，再写成摘要发到你的邮箱。
+> **English**: Automated intelligence pipeline that scrapes, filters, and analyzes Industrial AI news from 11 German & global sources — powered by local LLM (Ollama) and delivered daily via email with personalized views (Student/Technician).
+>
+> **中文**: 自动化情报流水线，从 11 个德国及全球源抓取、过滤并分析工业 AI 新闻 — 由本地 LLM (Ollama) 驱动，每日通过邮件发送个性化（学生/技术员）双视角摘要。
 
----
+## 🌟 Key Features | 核心功能
 
-## 🗺️ 这个系统是做什么的？
+1. **Dual-View Analysis (双视角分析)**:
+   - **Student View (ZH)**: Simple explanation identifying learning points & tool stacks. (学生视角：通俗解读，关注学习点与工具栈)
+   - **Technician View (DE)**: Professional German analysis focusing on Maintenance, PLC, and OEE. (技术员视角：德语专业分析，关注维护、PLC 与 OEE)
 
-```
-互联网上的文章    →    筛选相关文章    →    AI 分析    →    发送到你邮箱
-(每天自动抓取)       (去掉不相关的)     (写成摘要)     (按不同读者定制)
-```
+2. **Smart Persona Routing (智能分发)**:
+   - Specific emails for **Students** (Chinese focus) vs **Technicians** (German focus).
+   - Auto-tagging based on keywords like `SPS`, `TIA Portal` (+3 score).
+   - Subject prefixes are standardized as `[Student]` / `[Technician]` (no profile-name suffixes such as "Maintenance").
+   - Technician daily digest is sent to both configured `EMAIL_TO` and `Max Lang <max@max-lang.de>`.
 
-**具体来说，它每次运行时会做 4 件事：**
+3. **Privacy First (隐私优先)**:
+   - 100% Local execution supported via **Ollama**. (支持 100% 本地运行)
 
-| 步骤 | 做什么 | 就像是… |
-|------|--------|--------|
-| 1️⃣ 抓取 | 从 20+ 个网站和 RSS 源抓取最新文章 | 派人去翻报纸 |
-| 2️⃣ 过滤 | 用关键词 + AI 判断文章是否与工业 AI 相关 | 筛掉不相关广告 |
-| 3️⃣ 分析 | 用 AI 生成中/英/德三语摘要，并为不同读者写不同版本 | 秘书整理会议纪要 |
-| 4️⃣ 发送 | 把摘要发送到配置好的邮箱，或存入 Notion | 发送日报 |
+## 🚀 Workflow | 工作流程
 
-**当前邮件发送采用“先审后发”机制：**
-- 默认先发两封审核邮件到 `baixue243@gmail.com`（Student + Technician）
-- 审核通过后再执行正式群发（不会重复发给审核邮箱）
-
----
-
-## � 效果展示 (Showcase)
-
-系统生成的交付物经过结构化整理，方便不同读者群体快速获取核心信息：
-
-### 1. Notion 知识库自动化沉淀
-文章经过 AI 分析后，会自动转化为结构化数据写入 Notion，包含以下关键字段：
-- **标题**、**Score**（相关性评分1-5分）、**日期**
-- **类别 / 标签**（如 Industrial AI, MARL, Automotive 等）
-- **AI 摘要**（提炼出来的核心技术要点或机制说明）
-
-![Notion 展示](docs/notion_preview.png)
-
-### 2. 定制化排版的邮件订阅 (以 Technician 技师版为例)
-针对非研发人员的邮件订阅，采用了清晰的大小色块设计，减轻长文本阅读疲劳：
-- **KERNFOKUS（核心关注点）**：具有极高对比度的侧边栏引导，采用简短的无序列表（Bullet points），快速说明这项技术在工业 4.0 的价值，如 Predictive Maintenance（预测性维护）。
-- **KERNMECHANISMUS（核心机制）**：采用带颜色的编号列表（Numbered list），大量使用生动通俗的比喻（如“像机器的运动手环”、“像私人医生”）解释复杂的 AI 工作原理。
-
-![Email 展示](docs/email_preview.png)
-
----
-
-## �👥 会发给谁？发什么内容？
-
-系统支持**多个收件人画像**，每个画像收到不同风格的邮件：
-
-### 🎓 学生版（Student）
-- 语言：英文
-- 风格：学术视角，关注仿真、AI、求职
-- 内容：核心技术要点 + 应用背景 + 通俗解释
-
-### 🔧 技师版（Technician）
-- 语言：德文
-- 风格：实操导向，阅读障碍友好（大字体、高对比色块、短句优先）
-- 内容：
-  - 🔵 **Kernfokus**（应用场景与落地重点，短句列表）
-  - 🟠 **Kernmechanismus**（用形象比喻解释“它怎么运作”）
-  - 展示方式：**两个栏目、两种颜色、上下排列**
-
----
-
-## 🎯 检索领域（固定 6 大类）
-
-系统当前重点搜索以下 6 个 AI 工业应用领域：
-
-1. 工厂（Factory）
-2. 机器人（Robotics）
-3. 汽车（Automotive）
-4. 供应链（Supply Chain）
-5. 能源（Energy）
-6. 网络安全（Cybersecurity）
-
-其中“工厂”已细分为：
-- 设计与研发
-- 生产与工艺优化
-- 质量检测与缺陷分析
-- 设备运维与预测性维护
-
-并且默认启用 **AI 信号硬门槛**：纯行业新闻（如纯汽车新闻）不会进入分析，必须出现 AI/ML/机器视觉/大模型等信号。
-
----
-
-## 📁 项目结构（文件夹说明）
-
-```
-news/
-│
-├── main.py                  ← 主程序：点这里启动整个运行流程
-├── config.py                ← 配置中心：改这里设置收件人、关键词、数据源
-├── .env                     ← 密钥文件：存放邮箱密码、API Key（不要上传到 GitHub）
-│
-├── src/
-│   ├── scrapers/            ← 抓取器：负责从各网站拿文章
-│   │   ├── rss_scraper.py      RSS 订阅源抓取
-│   │   ├── web_scraper.py      普通网页抓取
-│   │   └── youtube_scraper.py  YouTube 视频抓取
-│   │
-│   ├── filters/             ← 过滤器：判断文章是否相关
-│   │
-│   ├── analyzers/           ← AI 分析器：调用大模型生成摘要
-│   │   └── llm_analyzer.py     核心分析逻辑（中/英/德三语）
-│   │
-│   └── delivery/            ← 发送器：把结果送到目的地
-│       ├── email_sender.py     邮件发送（含 HTML 模板渲染）
-│       ├── notion_service.py   推送到 Notion 数据库
-│       └── notion_sender.py
-│
-├── output/                  ← 输出目录：每次运行的结果文件
-│   ├── digest-YYYY-MM-DD.md        每日摘要（Markdown 格式）
-│   ├── sent_history.json           已发送记录（防止重复发送）
-│   └── newsletter_preview_technician.html      技师版邮件预览
-│
-└── tests/                   ← 自动测试：确保代码改动没有破坏功能
+```mermaid
+graph LR
+    A[📡 Sources] --> B[🔎 Filter & Tag]
+    B --> C[🧠 LLM Analysis]
+    C --> D[🔀 Persona Router]
+    D --> E[📧 Student Email (ZH)]
+    D --> F[📧 Technician Email (DE)]
 ```
 
----
+1. **Scrape**: 11 Premium sources (RSS, Web, Dynamic).
+2. **Filter & Tag**:
+   - `+3` Score: Technician Keywords (`Instandhaltung`, `TIA Portal`) → Tag: `Technician`
+   - `+2` Score: High Value (`Digital Twin`, `Simulation`) → Tag: `Student`
+3. **Analyze**: LLM generates `title_de`, `summary_de`, `technician_analysis_de`, and `simple_explanation`.
+4. **Deliver**: Routes content to configured profiles in `config.py`.
 
-## ⚙️ 第一次使用：环境配置
+## 🛠️ Tech Stack | 技术栈
 
-> 只需要配置一次，之后每次运行都不需要重复。
+| Layer | Technology |
+|---|---|
+| **Language** | Python 3.11 |
+| **Scraping** | `requests`, `BeautifulSoup`, `feedparser`, `Playwright` |
+| **LLM** | **Ollama (Local)** / NVIDIA NIM |
+| **Analysis** | Dual-View Prompt Engineering (ZH/DE) |
+| **Delivery** | SMTP (Gmail), Notion API, Markdown |
+| **CI/CD** | GitHub Actions, Pre-commit codespaces |
 
-### 第 1 步：安装依赖
+## 📊 Data Sources (11 Sources) | 数据源一览
 
-在终端（Terminal）里运行：
+The pipeline scrapes **11 premium sources** covering Policy, Research, and Industry.
+(本系统覆盖 **11 个优质数据源**，囊括政策、科研与产业界。)
+
+| Source (名称) | Type (类型) | Language | Focus Area (关注领域) | Priority |
+|---|---|---|---|---|
+| **Plattform Industrie 4.0** | Web | 🇩🇪 DE | German I4.0 Policy & Standardization (德国工业 4.0 政策与标准) | ⭐⭐⭐ (Critical) |
+| **Fraunhofer IPA** | Web | 🇩🇪 DE | Applied Manufacturing Research (应用制造研究) | ⭐⭐⭐ (Critical) |
+| **DFKI News** | Web | 🇩🇪 DE | AI Research & Robotics (人工智能与机器人) | ⭐⭐⭐ (Critical) |
+| **TUM fml (Logistics)** | Web | 🇬🇧 EN | Logistics & Material Flow (物流与物料流) | ⭐⭐⭐ (Critical) |
+| **Siemens Digital** | Web | 🇬🇧 EN | Automation & TIA Portal (自动化与 TIA Portal) | ⭐⭐ (High) |
+| **SimPlan Blog** | Web | 🇬🇧 EN | Simulation Consulting (仿真咨询) | ⭐⭐ (High) |
+| **VDI Nachrichten** | Web | 🇩🇪 DE | German Engineering News (德国工程新闻) | ⭐⭐ (High) |
+| **de:hub Smart Systems** | Web | 🇬🇧 EN | IoT & Innovation Hubs (物联网与创新中心) | ⭐⭐ (High) |
+| **arXiv cs.AI** | RSS | 🇬🇧 EN | Artificial Intelligence Papers (AI 论文) | ⭐ (Standard) |
+| **arXiv cs.SY** | RSS | 🇬🇧 EN | Systems & Control Theory (系统与控制理论) | ⭐ (Standard) |
+| **Handelsblatt Tech** | Dynamic | 🇩🇪 DE | Business Tech News (商业技术新闻) | ⭐ (Standard) |
+
+## 🔍 Filtering Principles | 过滤原则
+
+The system uses a **Two-Stage Filtering Pipeline** to ensure high relevance.
+(系统采用 **双重过滤流水线** 以确保内容的高度相关性。)
+
+### Stage 1: Smart Keyword Scoring (智能关键词评分)
+
+Articles are scored based on the presence of domain keywords.
+(文章根据包含的领域关键词进行评分。)
+
+| Score | Category | Keywords (Examples) | Action / Persona |
+|:---:|---|---|---|
+| **+3** | **Technician (技术员)** | `Instandhaltung` (Maintenance), `SPS/PLC`, `TIA Portal`, `OEE`, `Sicherheit` (Safety), `Störungsbehebung` (Troubleshooting) | ✅ **Keep** & Tag as `Technician` (保留并标记为技术员) |
+| **+2** | **Core Tech (核心技术)** | `Digital Twin`, `Ablaufsimulation`, `VIBN` (Virtual Commissioning), `Asset Administration Shell` (AAS), `Industrial AI` | ✅ **Keep** & Tag as `Student` (保留并标记为学生) |
+| **+1** | **General (通用)** | `Industry 4.0`, `Smart Factory`, `Predictive Maintenance`, `AnyLogic`, `Siemens`, `Reinforcement Learning` | ⚠️ Need score ≥ 1 to pass (需总分 ≥ 1 才能通过) |
+
+> **Threshold**: Articles with `Score >= 1` proceed to Stage 2.
+> (**阈值**：总分 `>= 1` 的文章进入第二阶段。)
+
+### Stage 2: LLM Relevance Validation (LLM 相关性校验)
+
+(Optional / 可选)
+A lightweight LLM call (Local Ollama or Cloud) verifies the context with a binary check:
+(轻量级 LLM 调用进行二次确认：)
+
+> "Is this article about industrial AI, discrete event simulation, or smart manufacturing? Reply YES or NO."
+
+- **Parallel Execution**: Checks are run concurrently using `ThreadPoolExecutor`.
+- **Configurable**: `KIMI_MAX_CONCURRENCY` controls the number of parallel threads (default: 4 for Cloud, 1 for Local).
+
+Only articles confirmed as **"YES"** are sent for final analysis.
+(只有确认为 **"YES"** 的文章才会进入最终分析。)
+
+## 🤖 AI Analysis Environment | AI 分析环境
+
+The core analysis is performed by a **local Large Language Model** (e.g., Kimi k2.5 via Ollama) using a specialized Prompt Engineering strategy.
+(核心分析由 **本地大语言模型** 执行，采用专门的提示词工程策略。)
+
+### System Persona (系统设定)
+> **Role**: "Senior Technical Expert in German Industry 4.0, bridging OT (Automation) and IT (Data Science)."
+> (**角色**: "深耕德国工业 4.0 领域的资深技术专家，连接自动化工程与数据科学。")
+
+### Core Constraints (核心限制)
+1.  **Contextual Linking (场景化链接)**: Must connect content to real tools like **Siemens TIA Portal** (OT) and **Jupyter Notebooks** (IT).
+2.  **No Clichés (拒绝陈词滥调)**:
+    *   **Student View**: Explain data flow (Sensor -> PLC -> Cloud).
+    *   **Technician View**: Focus on Maintenance (`Instandhaltung`), Availability (`Anlagenverfügbarkeit`), and OEE.
+3.  **Bilingual Alignment (双语对齐)**: Key terms must be preserved in German/English with Chinese annotations.
+
+## 🧠 AI Analysis Output | 分析维度
+
+Each article is analyzed into structured fields:
+
+| Field | Description (EN) | Description (CN) |
+|---|---|---|
+| 🇨🇳 `title_zh` | Chinese Title | 中文标题 |
+| �� `title_de` | **German Title (New)** | 德语标题 |
+| 📝 `summary_zh/de` | Bilingual Summary | 双语摘要 |
+| 💡 `simple_explanation` | **Student View**: Concept Simplification | **学生视角**：通俗原理解读 |
+| � `technician_analysis_de` | **Technician View**: Maintenance & PLC Focus | **技术员视角**：维护与 PLC 深度分析 |
+| 🛠️ `tool_stack` | Software tools (e.g. AnyLogic) | 涉及软件/工具栈 |
+| 🏭 `german_context` | Industry Background | 德国产业背景 |
+
+## 🏃 Quick Start | 快速开始
 
 ```bash
-cd /Users/baixue/news
+# 1. Clone & Setup
+git clone https://github.com/xuebai12/industrial-ai-news.git
+cd industrial-ai-news
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-```
 
-### 第 2 步：创建密钥文件
-
-```bash
+# 2. Configure Environment
 cp .env.example .env
+# Edit .env: Set USE_LOCAL_OLLAMA=true or provide NVIDIA_API_KEY
+
+# 3. Configure Personas (Optional)
+# Edit config.py to adjust RECIPIENT_PROFILES
+
+# 4. Run Pipeline
+python3 main.py --output email --skip-dynamic
 ```
 
-然后用文本编辑器打开 `.env`，填写以下内容：
+### Configuration Options | 配置选项
 
-```
-# AI 模型选择（二选一）
-USE_LOCAL_OLLAMA=true          # 使用本地 Ollama 模型（免费）
-OLLAMA_MODEL=kimi-k2.5:cloud
+| Option | Description |
+|---|---|
+| `--output email` | Send emails based on profiles. (基于画像发送邮件) |
+| `--output notion` | Push to Notion database. (推送到 Notion) |
+| `--mock` | Use mock data for testing. (使用模拟数据) |
+| `--skip-llm-filter` | Skip LLM validation for speed. (跳过 LLM 校验) |
 
-# 或者使用云端 NVIDIA 模型（需要 API Key）
-NVIDIA_API_KEY=你的Key
+### Push Existing Digest to Notion
 
-# 邮件发送配置（使用 Gmail 举例）
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=你的邮箱@gmail.com
-SMTP_PASS=你的应用专用密码
-EMAIL_TO=收件人@gmail.com
-EMAIL_REVIEWER=baixue243@gmail.com  # 审核邮箱（默认值）
-
-# 过滤开关（建议保持默认）
-REQUIRE_AI_SIGNAL=true               # 必须是 AI 相关内容才入选
-
-# Notion（可选，不用可以留空）
-NOTION_API_KEY=
-NOTION_DATABASE_ID=
-
-# YouTube（可选，用于抓取 YouTube 视频）
-YOUTUBE_API_KEY=
-```
-
-> 💡 Gmail 需要开启"两步验证"并生成"应用专用密码"，不能直接用账号密码。
-
----
-
-## ▶️ 日常运行
-
-配置完成后，每次运行只需要一行命令：
+If you already have a generated digest markdown file and want to import it into Notion directly:
 
 ```bash
-# 默认：先发审核邮件到 reviewer（student+technician 两封）
-./.venv/bin/python main.py --output email
-
-# 审核通过后：正式发送给其他收件人
-./.venv/bin/python main.py --output email --approve-send
-
-# 预览效果，不真正发送（测试用）
-./.venv/bin/python main.py --dry-run --output email
-
-# 发邮件 + 保存 Markdown + 推送 Notion
-./.venv/bin/python main.py --output both
-
-# 跳过慢速网站（运行更快）
-./.venv/bin/python main.py --output email --skip-dynamic
+./.venv/bin/python push_digest_to_notion.py output/digest-2026-02-12.md --date 2026-02-12
 ```
 
----
+### Notion Rating Feedback Loop
 
-## 🔧 运行参数说明
+Pull your rated Notion entries (1-5) and generate a local optimization report:
 
-运行 `main.py --help` 可以查看所有参数，常用参数如下：
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--output {email,markdown,both,notion}` | 输出格式。`email` 发送邮件，`markdown` 保存文件，`both`包含全部，`notion` 推送Notion | `email` |
-| `--dry-run` | 仅在控制台打印生成的内容，不实际发送邮件或写入外部系统 | false |
-| `--approve-send` | 审核模式开关。加上此参数代表审核通过，执行正式发送（不再发给 Reviewer） | false |
-| `--skip-dynamic` | 跳过需要浏览器渲染的动态网页抓取（Playwright），速度更快 | false |
-| `--skip-llm-filter` | 跳过 LLM 的相关性校验，仅使用关键词过滤（省钱模式） | false |
-| `--strict` | 严格模式，遇到任何阶段的错误都会中止程序并报错 | false |
-| `--max-articles N` | 每个数据源最多抓取的文章数量 | 20 |
-| `--mock` | 使用本地 Mock 数据代替真实 LLM 分析（测试用） | false |
-
----
-
-## 📰 数据来源
-
-系统抓取以下类型的来源：
-
-| 来源类型 | 例子 |
-|---------|------|
-| 德国工业研究机构 | Fraunhofer IPA、DFKI、TUM |
-| 汽车媒体/车厂技术源 | Volkswagen、BMW、Mercedes、Automotive News Europe、SAE |
-| 中国工业与AI媒体/机构 | 36Kr、机器之心、高工机器人、甲子光年、MIIT、信通院、BYD |
-| 行业媒体 | VDI Nachrichten、Handelsblatt |
-| 大厂官方博客 | Siemens、ABB、Bosch、Google Cloud |
-| 学术论文预印本 | arXiv（cs.AI、cs.SY） |
-| 供应链平台 | SAP、AWS、Oracle |
-| YouTube 视频 | Industrial AI 及工业主题频道 |
-
----
-
-## 🚨 常见问题排查
-
-### 邮件发不出去
-1. 检查 `.env` 里的 `SMTP_USER`、`SMTP_PASS`、`EMAIL_TO` 是否填写正确
-2. Gmail 用户确认使用的是**应用专用密码**，不是账号密码
-3. 运行时加 `--dry-run` 先确认内容是否正常
-
-### 文章数量太少（0 篇或 1-2 篇）
-1. 加 `--skip-llm-filter` 绕过 AI 二次过滤，看关键词过滤是否正常
-2. 检查 `REQUIRE_AI_SIGNAL=true` 是否过严；若做探索可临时关闭
-3. 检查网络连接，部分德国网站在中国大陆可能需要代理
-
-### 中文来源在英文/德文模板里显示不对
-1. 系统已要求中文来源必须翻译到模板语言（Student=EN, Technician=DE）
-2. 若仍出现混语，先重跑一次（模型可能返回不完整字段）
-3. 如需强制更严格，可在分析提示词中提升翻译约束
-
-### AI 分析质量差或运行很慢
-1. 检查 Ollama 是否在运行：`ollama list`
-2. 考虑切换到 NVIDIA 云端模型，在 `.env` 里设置 `NVIDIA_API_KEY`
-
-### 想看邮件长什么样但不想发送
 ```bash
-./.venv/bin/python main.py --dry-run --output email
+# Step 1: fetch rated records from Notion (default lookback: 30 days)
+./.venv/bin/python fetch_notion_feedback.py --days 30 --output-dir output
+
+# Step 2: build feedback report (source/category/keyword performance)
+./.venv/bin/python build_feedback_report.py --output-dir output --min-samples 3
 ```
-也可以直接在浏览器里打开 `output/newsletter_preview_technician.html`
 
----
-审核发送（先给你）
-./.venv/bin/python /Users/baixue/news/main.py --output email
-审核通过后正式发送（给其他收件人）
-./.venv/bin/python /Users/baixue/news/main.py --output email --approve-send
+Outputs:
 
+- `output/feedback-YYYY-MM-DD.json`
+- `output/feedback-report-YYYY-MM-DD.json`
+- `output/feedback-report-YYYY-MM-DD.md`
 
-## 📊 运行日志
+## 📂 Project Structure | 项目结构
 
-每次运行后，会在 `output/` 目录生成：
+- `src/scrapers/`: Parsers for RSS and Websites.
+- `src/filters/`: Keyword scoring & tagging logic.
+- `src/analyzers/`: LLM Prompts & Providers (Ollama/NIM).
+- `src/delivery/`: Email renderer (Jinja2) & Notion client.
+- `config.py`: **Profiles**, Keywords, Sources.
 
-- `run-summary-YYYY-MM-DD.json` — 本次运行统计（抓了多少篇、过了多少篇、发给了谁）
-- `digest-YYYY-MM-DD.md` — 当日摘要的 Markdown 版本
-- `sent_history.json` — 发送历史记录（防止同一篇文章被重复发送）
+## 🤝 Contribution
 
----
+Running tests:
+```bash
+pytest
+```
 
-## 🛠️ 技术栈（给有开发经验的读者）
-
-| 组件 | 技术 |
-|------|------|
-| 语言 | Python 3.11+ |
-| AI 模型 | Ollama（本地）/ NVIDIA NIM Kimi-K2.5（云端） |
-| 邮件模板 | Jinja2 HTML |
-| 数据库 | Notion API |
-| 数据抓取 | requests + BeautifulSoup + feedparser + YouTube Data API v3 |
-| 测试 | pytest |
-
----
-
-*最后更新：2026-02-20*
+Running type checks:
+```bash
+mypy src
+```

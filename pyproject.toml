@@ -13,7 +13,6 @@ dependencies = [
     "aiohttp>=3.9",
     "requests>=2.31",
     "notion-client>=2.0",
-    "google-api-python-client>=2.0",
 ]
 
 [project.optional-dependencies]

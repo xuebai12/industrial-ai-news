@@ -16,15 +16,6 @@ from config import (
     HIGH_PRIORITY_KEYWORDS,
     MEDIUM_PRIORITY_KEYWORDS,
     TECHNICIAN_KEYWORDS,
-    INDUSTRY_CONTEXT_KEYWORDS,
-    THEORY_ONLY_RISK_KEYWORDS,
-    THEORY_CONTEXT_DEPENDENT_KEYWORDS,
-    STRICT_INDUSTRY_CONTEXT_GATING,
-    FALLBACK_REQUIRE_INDUSTRY_CONTEXT,
-    PRIORITY_INDUSTRIAL_SOURCES,
-    TARGET_SEARCH_DOMAINS,
-    AI_RELEVANCE_KEYWORDS,
-    REQUIRE_AI_SIGNAL,
     LLM_API_KEY,
     LLM_BASE_URL,
     LLM_MODEL,
@@ -34,15 +25,9 @@ from config import (
 
 logger = logging.getLogger(__name__)
 _relevance_client: OpenAI | None = None
-MIN_RELEVANT_ARTICLES = max(0, int(os.getenv("MIN_RELEVANT_ARTICLES", "12")))
+MIN_RELEVANT_ARTICLES = max(0, int(os.getenv("MIN_RELEVANT_ARTICLES", "5")))
 IS_LOCAL = API_PROVIDER == "Local_Ollama"
 MAX_CONCURRENCY = max(1, int(os.getenv("KIMI_MAX_CONCURRENCY", "1" if IS_LOCAL else "4")))
-PRIORITY_INDUSTRIAL_SOURCE_SET = {item.strip().casefold() for item in PRIORITY_INDUSTRIAL_SOURCES}
-THEORY_CONTEXT_DEPENDENT_SET = {
-    re.sub(r"[\s_/]+", " ", item.lower().replace("-", " ")).strip()
-    for item in THEORY_CONTEXT_DEPENDENT_KEYWORDS
-    if isinstance(item, str) and item.strip()
-}
 
 # 宽进：补充更通用的工业 AI 主题词，覆盖标题/摘要中的常见表达
 BROAD_KEYWORDS = [
@@ -64,15 +49,6 @@ BROAD_KEYWORDS = [
     "computer vision",
 ]
 
-_TARGET_DOMAIN_KEYWORDS = {
-    name: [
-        re.sub(r"[\s_/]+", " ", str(kw).lower().replace("-", " ")).strip()
-        for kw in keywords
-        if isinstance(kw, str) and kw.strip()
-    ]
-    for name, keywords in TARGET_SEARCH_DOMAINS.items()
-}
-
 
 def _normalize_text(text: str) -> str:
     """Lowercase and normalize separators for robust keyword matching."""
@@ -93,41 +69,6 @@ def _contains_keyword(text: str, keyword: str) -> bool:
     return kw in text
 
 
-def _has_industry_context(text: str) -> bool:
-    return any(_contains_keyword(text, kw) for kw in INDUSTRY_CONTEXT_KEYWORDS)
-
-
-def _has_theory_risk(text: str) -> bool:
-    return any(_contains_keyword(text, kw) for kw in THEORY_ONLY_RISK_KEYWORDS)
-
-
-def _matched_target_domains(text: str) -> set[str]:
-    hits: set[str] = set()
-    for domain, keywords in _TARGET_DOMAIN_KEYWORDS.items():
-        if any(_contains_keyword(text, kw) for kw in keywords):
-            hits.add(domain)
-    return hits
-
-
-def _has_ai_signal(text: str) -> bool:
-    return any(_contains_keyword(text, kw) for kw in AI_RELEVANCE_KEYWORDS)
-
-
-def _is_fallback_eligible(article: Article) -> bool:
-    text = _normalize_text(f"{article.title} {article.content_snippet}")
-    has_industry = _has_industry_context(text)
-    has_theory_risk = _has_theory_risk(text)
-    target_domains = _matched_target_domains(text)
-    has_ai = _has_ai_signal(text)
-    source = (article.source or "").strip().casefold()
-    in_priority_source = source in PRIORITY_INDUSTRIAL_SOURCE_SET
-    if REQUIRE_AI_SIGNAL and not has_ai:
-        return False
-    if FALLBACK_REQUIRE_INDUSTRY_CONTEXT:
-        return has_industry or in_priority_source or bool(target_domains)
-    return not (STRICT_INDUSTRY_CONTEXT_GATING and has_theory_risk and not has_industry)
-
-
 def keyword_score(article: Article) -> tuple[int, list[str]]:
     """
     基于关键词匹配计算文章得分与受众标签 (Score article & tag personas).
@@ -136,10 +77,6 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
     - Medium-priority keywords: +1
     """
     text = _normalize_text(f"{article.title} {article.content_snippet}")
-    has_industry_context = _has_industry_context(text)
-    has_theory_risk = _has_theory_risk(text)
-    matched_domains = _matched_target_domains(text)
-    has_ai = _has_ai_signal(text)
     score = 0
     personas = set()
 
@@ -156,13 +93,6 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
             logger.debug(f"  +2 for keyword '{kw}' in: {article.title[:60]}")
 
     for kw in MEDIUM_PRIORITY_KEYWORDS:
-        kw_norm = _normalize_text(kw)
-        if (
-            STRICT_INDUSTRY_CONTEXT_GATING
-            and kw_norm in THEORY_CONTEXT_DEPENDENT_SET
-            and not has_industry_context
-        ):
-            continue
         if _contains_keyword(text, kw):
             score += 1
             logger.debug(f"  +1 for keyword '{kw}' in: {article.title[:60]}")
@@ -172,29 +102,6 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
         for kw in BROAD_KEYWORDS:
             if _contains_keyword(text, kw):
                 score += 1
-                break
-
-    # Prioritize the six target domains for retrieval.
-    if matched_domains:
-        score += 1
-
-    # Add a weak positive signal only when theoretical terms appear in clear industrial context.
-    if has_theory_risk and has_industry_context:
-        score += 1
-
-    # Medium-strict gate: theory-heavy but no industrial context is heavily down-ranked.
-    if STRICT_INDUSTRY_CONTEXT_GATING and has_theory_risk and not has_industry_context:
-        score = min(score, 1)
-
-    # Hard gate: must be AI-related, avoid purely industrial/automotive generic news.
-    if REQUIRE_AI_SIGNAL and not has_ai:
-        score = 0
-
-    # Expose flags for downstream filter/fallback decisions.
-    setattr(article, "has_industry_context", has_industry_context)
-    setattr(article, "has_theory_risk", has_theory_risk)
-    setattr(article, "matched_target_domains", sorted(matched_domains))
-    setattr(article, "has_ai_signal", has_ai)
 
     # Default to Student if relevant but no specific persona tag
     if score >= RELEVANCE_THRESHOLD and not personas:
@@ -310,8 +217,7 @@ def filter_articles(articles: list[Article], skip_llm: bool = False) -> list[Art
                     continue
                 if llm_result is None and article.relevance_score >= 2:
                     # 严出兜底：仅在 LLM 不可判定时放行高分项，避免整批为 0。
-                    if _is_fallback_eligible(article):
-                        result.append(article)
+                    result.append(article)
         logger.info(f"[FILTER] {len(result)}/{len(scored)} passed LLM Cloud validation")
 
     # Ensure a minimum daily volume for digest stability.
@@ -323,8 +229,6 @@ def filter_articles(articles: list[Article], skip_llm: bool = False) -> list[Art
         for candidate in sorted(scored, key=lambda a: a.relevance_score, reverse=True):
             key = f"{(candidate.url or '').strip()}|{(candidate.title or '').strip().lower()}"
             if key in existing_keys:
-                continue
-            if not _is_fallback_eligible(candidate):
                 continue
             result.append(candidate)
             existing_keys.add(key)

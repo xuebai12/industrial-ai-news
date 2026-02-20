@@ -18,9 +18,6 @@ logger = logging.getLogger(__name__)
 # 读取 NVIDIA 的 API Key (MOONSHOT_API_KEY 已移除)
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 
-# YouTube API Key
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
-
 # Determine which provider to use (自动判断使用哪个模型提供商)
 # 优先级 Priority: USE_LOCAL_OLLAMA > NVIDIA NIM > Local Ollama (Fallback)
 USE_LOCAL_OLLAMA = os.getenv("USE_LOCAL_OLLAMA", "false").lower() == "true"
@@ -69,348 +66,6 @@ MAX_ARTICLES_PER_SOURCE = int(_max_articles) if _max_articles else 20  # 每个�
 _relevance_threshold = os.getenv("RELEVANCE_THRESHOLD")
 RELEVANCE_THRESHOLD = int(_relevance_threshold) if _relevance_threshold else 1  # 关键词相关性阈值
 
-def _env_flag(name: str, default: str = "true") -> bool:
-    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
-
-
-# --- Industry Context Gating (工业语境门槛) ---
-# ---------------------------------------------
-INDUSTRY_CONTEXT_KEYWORDS = [
-    "industrial",
-    "manufacturing",
-    "factory",
-    "shopfloor",
-    "production line",
-    "production",
-    "plant",
-    "equipment",
-    "machine",
-    "robot",
-    "automation",
-    "maintenance",
-    "predictive maintenance",
-    "plc",
-    "sps",
-    "mes",
-    "scada",
-    "oee",
-    "iiot",
-    "iot",
-    "opc ua",
-    "warehouse",
-    "supply chain",
-    "industrie 4.0",
-    "industry 4.0",
-    "fertigung",
-    "produktion",
-    "instandhaltung",
-    "anlagen",
-    "automotive",
-    "vehicle",
-    "oem",
-    "tier 1",
-    "ev",
-    "battery production",
-    "battery line",
-    "digital factory",
-    "industrial internet",
-    "embodied ai",
-    "cobot",
-    "汽车",
-    "汽车制造",
-    "主机厂",
-    "整车厂",
-    "产线",
-    "锂电产线",
-    "动力电池",
-    "数字工厂",
-    "工业互联网",
-    "机器视觉",
-    "协作机器人",
-    "具身智能",
-    "总装",
-    "焊装",
-    "冲压",
-    "涂装",
-]
-
-THEORY_ONLY_RISK_KEYWORDS = [
-    "hypergraph",
-    "theorem",
-    "proof",
-    "formal logic",
-    "meta synthesis",
-    "meta-synthesis",
-    "reasoning benchmark",
-    "corridor traffic signal control",
-    "traffic signal control",
-    "reinforcement learning",
-    "deep reinforcement learning",
-    "multi-agent",
-    "multi agent",
-    "marl",
-]
-
-# Keywords that should score only when industrial context is present.
-THEORY_CONTEXT_DEPENDENT_KEYWORDS = [
-    "Reinforcement Learning",
-    "Deep Reinforcement Learning",
-    "Multi-Agent System",
-    "Adaptive Control",
-    "MPC",
-    "Reinforcement Learning for Scheduling",
-]
-
-STRICT_INDUSTRY_CONTEXT_GATING = _env_flag("STRICT_INDUSTRY_CONTEXT_GATING", "true")
-FALLBACK_REQUIRE_INDUSTRY_CONTEXT = _env_flag("FALLBACK_REQUIRE_INDUSTRY_CONTEXT", "true")
-REQUIRE_AI_SIGNAL = _env_flag("REQUIRE_AI_SIGNAL", "true")
-
-AI_RELEVANCE_KEYWORDS = [
-    "ai",
-    "artificial intelligence",
-    "machine learning",
-    "ml",
-    "deep learning",
-    "neural network",
-    "computer vision",
-    "vision ai",
-    "industrial ai",
-    "generative ai",
-    "genai",
-    "llm",
-    "foundation model",
-    "predictive model",
-    "reinforcement learning",
-    "智能",
-    "人工智能",
-    "工业人工智能",
-    "工业ai",
-    "机器学习",
-    "深度学习",
-    "机器视觉",
-    "大模型",
-    "多模态模型",
-]
-
-PRIORITY_INDUSTRIAL_SOURCES = [
-    "YouTube: Industrial AI (US)",
-    "YouTube: Industrial AI (DE)",
-    "SimPlan Blog/News",
-    "ABB Robotics News",
-    "Rockwell Automation Blog",
-    "Siemens Industrial Copilot",
-    "NVIDIA Omniverse Blog",
-    "Google Cloud Manufacturing Blog",
-    "Manufacturing.net",
-    "VDI Nachrichten Tech",
-    "Handelsblatt",
-    "Fraunhofer IPA Press",
-    "DFKI News",
-    "Volkswagen Group Newsroom",
-    "BMW Group PressClub",
-    "Mercedes-Benz Group Media",
-    "Automotive News Europe",
-    "SAE International News",
-    "36Kr AI",
-    "Jiqizhixin",
-    "Gaogong Robotics",
-    "Jazzyear (甲子光年)",
-    "MIIT News",
-    "CAICT News",
-    "BYD Newsroom",
-]
-
-# RSS/Web source prioritization:
-# - default: prioritize whitelist first, then backfill others.
-# - set RSS_WEB_PRIORITY_ONLY=true to scrape only whitelist sources.
-RSS_WEB_PRIORITY_SOURCES = [
-    "arXiv cs.AI (Simulation/RL)",
-    "arXiv cs.SY (Systems)",
-    "Fraunhofer IPA Press",
-    "DFKI News",
-    "SimPlan Blog/News",
-    "VDI Nachrichten Tech",
-    "Plattform Industrie 4.0",
-    "Manufacturing.net",
-    "NVIDIA Omniverse Blog",
-    "Google Cloud Manufacturing Blog",
-    "Handelsblatt Tech",
-    "Volkswagen Group Newsroom",
-    "BMW Group PressClub",
-    "Mercedes-Benz Group Media",
-    "Automotive News Europe",
-    "SAE International News",
-    "36Kr AI",
-    "Jiqizhixin",
-    "Gaogong Robotics",
-    "Jazzyear (甲子光年)",
-    "MIIT News",
-    "CAICT News",
-    "BYD Newsroom",
-]
-RSS_WEB_PRIORITY_ONLY = _env_flag("RSS_WEB_PRIORITY_ONLY", "false")
-
-# --- Target Search Domains (6 fields) ---
-# ----------------------------------------
-# The pipeline prioritizes these six business domains:
-# 1) Factory, 2) Robotics, 3) Automotive, 4) Supply Chain, 5) Energy, 6) Cybersecurity.
-TARGET_SEARCH_DOMAINS: dict[str, list[str]] = {
-    "factory": [
-        # 1) 设计与研发 (Design & R&D)
-        "design",
-        "r&d",
-        "research and development",
-        "product design",
-        "process design",
-        "industrial simulation",
-        "cae",
-        "cad",
-        "virtual commissioning",
-        "digital twin engineering",
-        "设计与研发",
-        "工艺设计",
-        "产品设计",
-        "仿真设计",
-        "虚拟调试",
-        # 2) 生产与工艺优化 (Production & Process Optimization)
-        "factory",
-        "smart factory",
-        "digital factory",
-        "shopfloor",
-        "production line",
-        "process optimization",
-        "production optimization",
-        "line balancing",
-        "throughput optimization",
-        "scheduling optimization",
-        "生产优化",
-        "工艺优化",
-        "排产优化",
-        "节拍优化",
-        # 3) 质量检测与缺陷分析 (Quality & Defect Analytics)
-        "manufacturing execution",
-        "quality inspection",
-        "defect detection",
-        "machine vision",
-        "root cause analysis",
-        "spc",
-        "quality control",
-        "质量检测",
-        "缺陷分析",
-        "视觉质检",
-        "良率提升",
-        # 4) 设备运维与预测性维护 (Asset Ops & Predictive Maintenance)
-        "mes",
-        "plc",
-        "scada",
-        "asset performance management",
-        "condition monitoring",
-        "predictive maintenance",
-        "downtime reduction",
-        "mtbf",
-        "mttr",
-        "设备运维",
-        "预测性维护",
-        "状态监测",
-        "设备健康管理",
-        "数字工厂",
-        "智能工厂",
-        "产线",
-        "车间",
-        "工厂",
-    ],
-    "robotics": [
-        "robot",
-        "robotics",
-        "industrial robotics",
-        "cobot",
-        "agv",
-        "amr",
-        "robot cell",
-        "机器人",
-        "协作机器人",
-        "工业机器人",
-        "机器人工作站",
-    ],
-    "automotive": [
-        "automotive",
-        "vehicle",
-        "oem",
-        "tier 1",
-        "ev",
-        "battery manufacturing",
-        "software-defined vehicle",
-        "汽车",
-        "汽车制造",
-        "主机厂",
-        "整车厂",
-        "锂电产线",
-        "动力电池",
-    ],
-    "supply_chain": [
-        "supply chain",
-        "logistics",
-        "warehouse",
-        "intralogistics",
-        "demand planning",
-        "inventory optimization",
-        "供应链",
-        "物流",
-        "仓储",
-        "排产",
-        "计划",
-    ],
-    "energy": [
-        "energy",
-        "power",
-        "grid",
-        "carbon",
-        "sustainability",
-        "energy management",
-        "电力",
-        "能源",
-        "能耗",
-        "碳",
-        "节能",
-    ],
-    "cybersecurity": [
-        "ot cybersecurity",
-        "ics security",
-        "industrial cybersecurity",
-        "zero trust",
-        "iec 62443",
-        "工控安全",
-        "网络安全",
-        "工业网络安全",
-        "ot 安全",
-    ],
-}
-
-# --- YouTube Focus Channels (优先频道白名单) ---
-# ----------------------------------------------
-YOUTUBE_FOCUS_CHANNELS_BY_REGION: dict[str, list[str]] = {
-    "US": [
-        "UCaEEm-0s0x3MHg9jzFcHuQQ",  # Siemens Knowledge Hub
-        "UCzFihlQ45oSUuxotAm6w0KA",  # siemens
-        "UCM_CsBtYQd5zVuYdwmNpT6g",  # ABB Robotics
-        "UC0q6j_EisHf1o_olWCvUHdA",  # Rockwell Automation
-        "UCnpqjEw2RHDBNVGDe8pI7tw",  # Schneider Electric
-        "UCr9G5B3I3iiPUk-bsQcA1lg",  # Bosch Rexroth
-        "UCzXmGvm1ami9yKhEcbREdaQ",  # Beckhoff Automation
-        "UCM09iVHDc416V8qLj-qhcWQ",  # Universal Robots
-        "UC1FuphciagC13Oz__5UPSYw",  # FANUC America Corporation
-        "UCSKUoczbGAcMld7HjpCR8OA",  # NVIDIA Omniverse
-        "UCaWe8GGxY3M7ACgdH1pfFuw",  # Hexagon Manufacturing Intelligence
-        "UCv7XrDJAwAPpaZOgpsyLG8A",  # IIoT World
-    ],
-    "DE": [
-        "UCLiDvwE91B9zF015Psf_xdA",  # FraunhoferIPA
-        "UCoEBqeN3sltnn4tkWBRot0w",  # Beckhoff Automation Deutschland
-        "UCVPf33n1Mr9gQL9clrxj2fQ",  # Schneider Electric Deutschland
-        "UCaEEm-0s0x3MHg9jzFcHuQQ",  # Siemens Knowledge Hub
-    ],
-}
-
 
 # --- Keyword Scoring Rules (Knowledge Graph) ---
 # --- 关键词评分规则 (筛选逻辑) ---
@@ -448,57 +103,6 @@ HIGH_PRIORITY_KEYWORDS = [
     "Industrial Copilot",
     "Production Optimization",
     "Smart Maintenance",
-    "Supply Chain AI",
-    "Supply Chain Optimization",
-    "Demand Planning",
-    "Supply Planning",
-    "Inventory Optimization",
-    "Replenishment Planning",
-    "Procurement Optimization",
-    "Production Scheduling",
-    "Finite Scheduling",
-    "APS",
-    "MES Integration",
-    "Warehouse Automation",
-    "Intralogistics",
-    "Material Flow Optimization",
-    "Operation Research",
-    "Prescriptive Analytics",
-    "Synthetic Data",
-    "Factory Copilot",
-    "Industrial GenAI",
-    "Lieferkettenoptimierung",
-    "Bedarfsprognose",
-    "Bestandsoptimierung",
-    "Produktionsplanung",
-    "Feinplanung",
-    "Intralogistik",
-    "Materialflussoptimierung",
-    "Automotive AI",
-    "AI in Automotive Manufacturing",
-    "Battery Manufacturing AI",
-    "Software-defined Vehicle Manufacturing",
-    "智能制造",
-    "工业人工智能",
-    "工业AI",
-    "数字工厂",
-    "工业互联网",
-    "机器视觉",
-    "协作机器人",
-    "具身智能",
-    "锂电产线",
-    "动力电池制造",
-    "汽车制造数字化",
-    "Design for Manufacturing AI",
-    "Industrial CAE AI",
-    "Production Process Optimization",
-    "AI Quality Inspection",
-    "Defect Root Cause Analysis",
-    "Asset Performance Management AI",
-    "设计与研发智能化",
-    "生产与工艺优化",
-    "质量检测与缺陷分析",
-    "设备运维与预测性维护",
 ]
 
 # 技师视角高优先级关键词 (+3 分)
@@ -516,50 +120,9 @@ TECHNICIAN_KEYWORDS = [
     "Fernwartung",             # Remote maintenance
     "SCADA",
     "MES",
-    "CMMS",
-    "EAM",
     "HMI",
     "OPC UA",
-    "ISA-95",
-    "SPC",
-    "Root Cause Analysis",
-    "Downtime",
-    "MTBF",
-    "MTTR",
-    "Condition-based Maintenance",
-    "Predictive Maintenance",
-    "Line Balancing",
-    "Cycle Time",
-    "Throughput",
-    "WIP",
-    "Scheduling",
-    "Dispatching",
-    "Andon",
-    "SMED",
-    "TPM",
-    "Quality Inspection",
-    "Defect Detection",
-    "Traceability",
-    "Batch Tracking",
-    "Wareneingang",
-    "Schichtplanung",
-    "Anlagenstillstand",
-    "Durchsatz",
-    "Rüstzeit",
     "Anomaly Detection",
-    "车身焊装",
-    "总装线",
-    "电池装配",
-    "视觉质检",
-    "设备稼动率",
-    "良率",
-    "换型",
-    "节拍",
-    "协作机器人",
-    "AGV",
-    "AMR",
-    "边缘计算",
-    "数字孪生产线",
 ]
 
 # 中优先级关键词 (+1 分)
@@ -604,78 +167,6 @@ MEDIUM_PRIORITY_KEYWORDS = [
     "Energy Management",
     "Lean Manufacturing",
     "Batch Optimization",
-    "Supply Chain",
-    "Logistics",
-    "Warehouse",
-    "Inventory",
-    "Replenishment",
-    "Procurement",
-    "S&OP",
-    "IBP",
-    "Demand Sensing",
-    "Forecast Accuracy",
-    "Safety Stock",
-    "Order Fulfillment",
-    "Route Optimization",
-    "Last Mile",
-    "Production Planning",
-    "Scheduling Optimization",
-    "Constraint-based Scheduling",
-    "Manufacturing Execution",
-    "Shop Floor",
-    "Digital Thread",
-    "Digital Factory",
-    "CPS",
-    "Reinforcement Learning for Scheduling",
-    "MPC",
-    "Simulation Optimization",
-    "Synthetic Data Generation",
-    "Generative AI for Manufacturing",
-    "Automotive",
-    "Automotive Manufacturing",
-    "Vehicle Production",
-    "OEM",
-    "Tier 1 Supplier",
-    "Battery Pack",
-    "Cell-to-Pack",
-    "E-Mobility Manufacturing",
-    "智能工厂",
-    "数字化车间",
-    "汽车工厂",
-    "工业机器人",
-    "机器人工作站",
-    "视觉检测",
-    "缺陷检测",
-    "工业大模型",
-    "边缘AI",
-    "产线优化",
-    "预测性维护",
-    "工厂排产",
-    "柔性制造",
-    "离散制造",
-    "工业软件",
-    "工业控制",
-    "工控安全",
-    "工业质检",
-    "仓储自动化",
-    "物流机器人",
-    "新能源汽车制造",
-    "电池制造",
-    "智能焊接",
-    "设备健康管理",
-    "工艺参数优化",
-    "工艺窗口",
-    "设备预警",
-    "故障诊断",
-    "根因分析",
-    "Lieferkette",
-    "Bestandsmanagement",
-    "Nachschub",
-    "Beschaffung",
-    "Fertigungsplanung",
-    "Schichtbetrieb",
-    "Qualitätsprüfung",
-    "Routenoptimierung",
 ]
 
 
@@ -705,18 +196,8 @@ RECIPIENT_PROFILES = [
         focus_keywords=["Simulation", "AI", "Python", "Job", "Thesis"],
     ),
     RecipientProfile(
-        name="Technician",
-        email=",".join(
-            [
-                e
-                for e in [
-                    EMAIL_TO,
-                    "max@max-lang.de",
-                    "reinhard.lang.mak@googlemail.com",
-                ]
-                if e
-            ]
-        ),
+        name="Technician (Maintenance)",
+        email=",".join([e for e in [EMAIL_TO, "max@max-lang.de"] if e]),
         language="de",  # German localization
         persona="technician",
         delivery_channel="email",
@@ -779,11 +260,10 @@ class DataSource:
     """
     name: str              # 数据源名称
     url: str               # URL 地址 (RSS feed 或 网页链接)
-    source_type: str       # 抓取类型 ("rss", "web", "dynamic", "youtube")
+    source_type: str       # 抓取类型 ("rss", "web", "dynamic")
     language: str          # 内容语言 ("de", "en", "zh")
     category: str          # 类别 ("research", "industry", "policy", "social")
     priority: int = 1      # 优先级 (1=Standard, 2=High, 3=Critical)
-    region_code: str = ""  # 可选: YouTube regionCode (e.g. "US", "DE")
 
 
 DATA_SOURCES: list[DataSource] = [
@@ -863,6 +343,14 @@ DATA_SOURCES: list[DataSource] = [
         priority=2,
     ),
     DataSource(
+        name="NVIDIA Manufacturing AI Blog",
+        url="https://blogs.nvidia.com/blog/category/manufacturing/",
+        source_type="web",
+        language="en",
+        category="industry",
+        priority=2,
+    ),
+    DataSource(
         name="Bosch Stories (Manufacturing/AI)",
         url="https://www.bosch.com/stories/",
         source_type="web",
@@ -870,167 +358,7 @@ DATA_SOURCES: list[DataSource] = [
         category="industry",
         priority=2,
     ),
-    DataSource(
-        name="AWS Supply Chain Blog",
-        url="https://aws.amazon.com/blogs/supply-chain/",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="SAP Supply Chain News",
-        url="https://news.sap.com/tag/supply-chain/",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="Oracle SCM",
-        url="https://www.oracle.com/scm/",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="Siemens Industrial Copilot",
-        url="https://press.siemens.com/global/en/search?query=industrial%20copilot",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="Google Cloud Manufacturing Blog",
-        url="https://cloud.google.com/blog/topics/manufacturing",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="StartUs Insights Manufacturing",
-        url="https://www.startus-insights.com/innovators-guide/tag/manufacturing/",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="AnyLogic Blog",
-        url="https://www.anylogic.com/blog/",
-        source_type="web",
-        language="en",
-        category="research",
-        priority=2,
-    ),
-    DataSource(
-        name="Kaggle Competitions",
-        url="https://www.kaggle.com/competitions",
-        source_type="web",
-        language="en",
-        category="research",
-        priority=1,
-    ),
-    # --- 3. Automotive & China Incremental Layer (汽车与中国增量层) ---
-    DataSource(
-        name="Volkswagen Group Newsroom",
-        url="https://www.volkswagen-group.com/en/news-stories",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="BMW Group PressClub",
-        url="https://www.press.bmwgroup.com/global",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="Mercedes-Benz Group Media",
-        url="https://media.mercedes-benz.com/",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="Automotive News Europe",
-        url="https://europe.autonews.com/",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="SAE International News",
-        url="https://www.sae.org/news",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="36Kr AI",
-        url="https://www.36kr.com/information/AI",
-        source_type="web",
-        language="zh",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="Jiqizhixin",
-        url="https://www.jiqizhixin.com/",
-        source_type="web",
-        language="zh",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="Gaogong Robotics",
-        url="https://www.gg-robot.com/",
-        source_type="web",
-        language="zh",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="Jazzyear (甲子光年)",
-        url="https://www.jazzyear.com/",
-        source_type="web",
-        language="zh",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="MIIT News",
-        url="https://www.miit.gov.cn/xwdt/gxdt/",
-        source_type="web",
-        language="zh",
-        category="policy",
-        priority=2,
-    ),
-    DataSource(
-        name="CAICT News",
-        url="https://www.caict.ac.cn/kxyj/qwfb/",
-        source_type="web",
-        language="zh",
-        category="research",
-        priority=2,
-    ),
-    DataSource(
-        name="BYD Newsroom",
-        url="https://www.bydglobal.com/cn/news/",
-        source_type="web",
-        language="zh",
-        category="industry",
-        priority=2,
-    ),
+
     # --- 3. Global Academic & Dynamic (Mixed) (全球学术与动态源) ---
     DataSource(
         name="arXiv cs.AI (Simulation/RL)",
@@ -1055,24 +383,5 @@ DATA_SOURCES: list[DataSource] = [
         language="de",
         category="industry",
         priority=1,
-    ),
-    # --- 4. YouTube Channels (Video) ---
-    DataSource(
-        name="YouTube: Industrial AI (US)",
-        url='("industrial ai" OR "factory ai" OR "smart factory" OR "industry 4.0" OR "digital twin" OR "industrial robotics" OR "automotive manufacturing ai" OR "battery manufacturing" OR "supply chain ai" OR "energy optimization ai" OR "ot cybersecurity" OR "industrial iot") -job -hiring -career -course',
-        source_type="youtube",
-        language="en",
-        category="industry",
-        priority=2,
-        region_code="US",
-    ),
-    DataSource(
-        name="YouTube: Industrial AI (DE)",
-        url='("industrie 4.0" OR "industrielle ki" OR "digitale zwillinge" OR "fabrikautomatisierung" OR "industrierobotik" OR "automobilproduktion ki" OR "batterieproduktion" OR "lieferkette ki" OR "energieoptimierung" OR "ot-sicherheit" OR "industrial ai") -job -hiring -career -kurs',
-        source_type="youtube",
-        language="de",
-        category="industry",
-        priority=2,
-        region_code="DE",
     ),
 ]

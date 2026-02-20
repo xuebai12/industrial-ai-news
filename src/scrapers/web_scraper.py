@@ -32,17 +32,6 @@ HEADERS = {
     "Accept-Language": "de,en;q=0.9",
 }
 
-# Low-value evergreen/event pages that should not enter daily digest.
-LOW_VALUE_URL_SUBSTRINGS = {
-    "/WasIndustrie40/was-ist-industrie-40.html",
-    "/treffen-transfernetzwerk.html",
-}
-
-LOW_VALUE_TITLE_SUBSTRINGS = {
-    "was ist industrie 4.0",
-    "treffen des transfer-netzwerks",
-}
-
 
 def _build_session() -> requests.Session:
     """创建带有重试机制的 HTTP 会话 (Build Request Session with automatic retries)"""
@@ -113,18 +102,6 @@ def _make_absolute(url: str, base_url: str) -> str:
     return urljoin(base_url, url)
 
 
-def _is_low_value_article(source_name: str, title: str, url: str) -> bool:
-    """Filter recurring low-value pages for better daily signal quality."""
-    if source_name != "Plattform Industrie 4.0":
-        return False
-    normalized_title = (title or "").strip().lower()
-    if any(fragment in normalized_title for fragment in LOW_VALUE_TITLE_SUBSTRINGS):
-        return True
-    if any(fragment in (url or "") for fragment in LOW_VALUE_URL_SUBSTRINGS):
-        return True
-    return False
-
-
 def scrape_generic_web(source_name: str, url: str, selector: str,
                        lang: str, category: str, max_items: int = 20,
                        session: requests.Session | None = None) -> list[Article]:
@@ -167,14 +144,9 @@ def scrape_generic_web(source_name: str, url: str, selector: str,
             snippet_el = item.select_one("p, .description, .summary, .teaser, .text")
             snippet = snippet_el.get_text(strip=True) if snippet_el else ""
 
-            absolute_link = _make_absolute(link, url)
-            if _is_low_value_article(source_name, title, absolute_link):
-                logger.info("[WEB] Skip low-value article from %s: %s", source_name, title[:90])
-                continue
-
             articles.append(Article(
                 title=_clean_text(title),
-                url=absolute_link,
+                url=_make_absolute(link, url),
                 source=source_name,
                 content_snippet=_clean_text(snippet),
                 language=lang,
@@ -189,7 +161,7 @@ def scrape_generic_web(source_name: str, url: str, selector: str,
     return articles
 
 
-def scrape_web_sources(max_items: int = 20, sources: list | None = None) -> list[Article]:
+def scrape_web_sources(max_items: int = 20) -> list[Article]:
     """
     抓取所有配置为 'web' 类型的源 (Scrape all web sources).
     根据 config.DATA_SOURCES 中的定义，自动匹配抓取规则。
@@ -201,7 +173,6 @@ def scrape_web_sources(max_items: int = 20, sources: list | None = None) -> list
     # 针对不同网站的 CSS 选择器配置
     selectors = {
         "Plattform Industrie 4.0": ".c-teaser, .card, article a, .use-case a",
-        "Plattform I4.0 Use Cases": ".c-teaser, .card, article a, .use-case a, a[href*='use-cases']",
         "Fraunhofer IPA Press": ".press-item, .news-item, article",
         "DFKI News": ".news-item, article, .portlet-body a",
         "TUM fml (Logistics)": ".news-item, article, .ce-textpic",
@@ -211,37 +182,12 @@ def scrape_web_sources(max_items: int = 20, sources: list | None = None) -> list
         "ABB Robotics News": "article a, .news-item a, .teaser a, a[href*='/news/']",
         "Rockwell Automation Blog": "article a, .cmp-teaser a, .card a, a[href*='/blogs/']",
         "Bosch Stories (Manufacturing/AI)": "article a, .story-teaser a, .teaser a, a[href*='/stories/']",
-        "AWS Supply Chain Blog": "article a, .blog-post a, .lb-txt-none a, a[href*='/blogs/']",
-        "Dynamics 365 Supply Chain": "main a, article a, .content a, .card a",
-        "SAP Supply Chain News": "article a, .post-item a, .news-item a, a[href*='/tag/supply-chain/']",
-        "Oracle SCM": "article a, .card a, .o-pod a, .o-content a",
-        "Siemens Industrial Copilot": "article a, .search-result a, .teaser a, a[href*='copilot']",
-        "NVIDIA Omniverse Blog": "article a, .post a, .entry a, a[href*='/blog/']",
-        "Google Cloud Manufacturing Blog": "article a, .feed-item a, .blog-item a, a[href*='/blog/']",
-        "Crunchbase AI Startups": "a[href*='/organization/'], a[href*='/hub/'], article a",
-        "StartUs Insights Manufacturing": "article a, .post a, .entry a, a[href*='/innovators-guide/']",
-        "AnyLogic Blog": "article a, .post a, .entry a, a[href*='/blog/']",
-        "Kaggle Competitions": "a[href*='/competitions/'], .competition-list__item a, article a",
-        "Manufacturing.net": "article a, .node a, .teaser a, a[href*='/']",
-        "Medium Industrial Data Science": "article a, .postArticle a, a[href*='/p/']",
-        "Volkswagen Group Newsroom": "article a, .news-item a, .teaser a, a[href*='/news-']",
-        "BMW Group PressClub": "article a, .cmp-teaser a, .teaser a, a[href*='/article/']",
-        "Mercedes-Benz Group Media": "article a, .teaser a, .m-media-tile a, a[href*='/article/']",
-        "Automotive News Europe": "article a, .node a, .view-content a, a[href*='/']",
-        "SAE International News": "article a, .news-item a, .teaser a, a[href*='/news/']",
-        "36Kr AI": "article a, .article-item-title a, .kr-shadow-content a, a[href*='/p/']",
-        "Jiqizhixin": "article a, .article-item a, .post-item a, a[href*='/articles/']",
-        "Gaogong Robotics": "article a, .list-item a, .news-list a, a[href*='/news/']",
-        "Jazzyear (甲子光年)": "article a, .list-item a, .post-item a, a[href*='/']",
-        "MIIT News": "article a, .list a, .news-list a, a[href*='/art/']",
-        "CAICT News": "article a, .list-item a, .news-list a, a[href*='/']",
-        "BYD Newsroom": "article a, .news-item a, .list-item a, a[href*='/news/']",
     }
     
     # Generic fallback selector (通用回退选择器)
     default_selector = "article, .news-item, .card, .entry, .post"
 
-    web_sources = list(sources) if sources is not None else [s for s in DATA_SOURCES if s.source_type == "web"]
+    web_sources = [s for s in DATA_SOURCES if s.source_type == "web"]
     observation_state = _load_observation_state()
 
     session = _build_session()
