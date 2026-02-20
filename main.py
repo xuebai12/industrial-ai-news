@@ -14,7 +14,12 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from config import DATA_SOURCES, RECIPIENT_PROFILES, validate_config
+from config import (
+    DATA_SOURCES,
+    RECIPIENT_PROFILES,
+    YOUTUBE_FOCUS_CHANNELS_BY_REGION,
+    validate_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -450,15 +455,36 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         youtube_sources = [s for s in DATA_SOURCES if s.source_type == "youtube"]
         if youtube_sources:
             try:
-                from src.scrapers.youtube_scraper import scrape_youtube
+                from src.scrapers.youtube_scraper import scrape_youtube, scrape_youtube_focus_channels
                 for source in youtube_sources:
                     try:
+                        region = getattr(source, "region_code", "")
+                        focus_channels = YOUTUBE_FOCUS_CHANNELS_BY_REGION.get(region, [])
+                        focus_videos = scrape_youtube_focus_channels(
+                            name=source.name,
+                            query=source.url,
+                            language=source.language,
+                            category=source.category,
+                            channel_ids=focus_channels,
+                            max_items=args.max_articles,
+                            region_code=region,
+                            video_duration="medium",
+                            safe_search="moderate",
+                        )
+                        all_articles.extend(focus_videos)
+
+                        remaining = max(0, args.max_articles - len(focus_videos))
+                        if remaining == 0:
+                            continue
                         yt_videos = scrape_youtube(
                             name=source.name,
                             url=source.url, # passed as query
                             language=source.language,
                             category=source.category,
-                            max_items=args.max_articles,
+                            max_items=remaining,
+                            region_code=region,
+                            video_duration="medium",
+                            safe_search="moderate",
                         )
                         all_articles.extend(yt_videos)
                     except Exception as exc:

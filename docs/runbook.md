@@ -48,6 +48,26 @@ Notion-specific categories inside delivery logs:
 - `RATE_LIMIT`: Notion throttling.
 - `API` / `UNKNOWN`: other provider or client errors.
 
+## Relevance filter guardrails
+
+The filter now applies medium-strict industrial context gating to reduce theory-only noise:
+
+- `STRICT_INDUSTRY_CONTEXT_GATING=true` (default):
+  theory-risk items without industrial context are down-ranked (`score <= 1`).
+- `FALLBACK_REQUIRE_INDUSTRY_CONTEXT=true` (default):
+  minimum-volume fallback only adds items that either:
+  - match industrial-context keywords, or
+  - come from priority industrial sources.
+
+Config knobs in `config.py`:
+
+- `INDUSTRY_CONTEXT_KEYWORDS`
+- `THEORY_ONLY_RISK_KEYWORDS`
+- `THEORY_CONTEXT_DEPENDENT_KEYWORDS`
+- `PRIORITY_INDUSTRIAL_SOURCES`
+- `STRICT_INDUSTRY_CONTEXT_GATING`
+- `FALLBACK_REQUIRE_INDUSTRY_CONTEXT`
+
 ## Common SOP
 
 1. Open latest `run-summary-*.json` and check `exit_reason`.

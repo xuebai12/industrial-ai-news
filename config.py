@@ -69,6 +69,115 @@ MAX_ARTICLES_PER_SOURCE = int(_max_articles) if _max_articles else 20  # 每个�
 _relevance_threshold = os.getenv("RELEVANCE_THRESHOLD")
 RELEVANCE_THRESHOLD = int(_relevance_threshold) if _relevance_threshold else 1  # 关键词相关性阈值
 
+def _env_flag(name: str, default: str = "true") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+# --- Industry Context Gating (工业语境门槛) ---
+# ---------------------------------------------
+INDUSTRY_CONTEXT_KEYWORDS = [
+    "industrial",
+    "manufacturing",
+    "factory",
+    "shopfloor",
+    "production line",
+    "production",
+    "plant",
+    "equipment",
+    "machine",
+    "robot",
+    "automation",
+    "maintenance",
+    "predictive maintenance",
+    "plc",
+    "sps",
+    "mes",
+    "scada",
+    "oee",
+    "iiot",
+    "iot",
+    "opc ua",
+    "warehouse",
+    "supply chain",
+    "industrie 4.0",
+    "industry 4.0",
+    "fertigung",
+    "produktion",
+    "instandhaltung",
+    "anlagen",
+]
+
+THEORY_ONLY_RISK_KEYWORDS = [
+    "hypergraph",
+    "theorem",
+    "proof",
+    "formal logic",
+    "meta synthesis",
+    "meta-synthesis",
+    "reasoning benchmark",
+    "corridor traffic signal control",
+    "traffic signal control",
+    "reinforcement learning",
+    "deep reinforcement learning",
+    "multi-agent",
+    "multi agent",
+    "marl",
+]
+
+# Keywords that should score only when industrial context is present.
+THEORY_CONTEXT_DEPENDENT_KEYWORDS = [
+    "Reinforcement Learning",
+    "Deep Reinforcement Learning",
+    "Multi-Agent System",
+    "Adaptive Control",
+    "MPC",
+    "Reinforcement Learning for Scheduling",
+]
+
+STRICT_INDUSTRY_CONTEXT_GATING = _env_flag("STRICT_INDUSTRY_CONTEXT_GATING", "true")
+FALLBACK_REQUIRE_INDUSTRY_CONTEXT = _env_flag("FALLBACK_REQUIRE_INDUSTRY_CONTEXT", "true")
+
+PRIORITY_INDUSTRIAL_SOURCES = [
+    "YouTube: Industrial AI (US)",
+    "YouTube: Industrial AI (DE)",
+    "SimPlan Blog/News",
+    "ABB Robotics News",
+    "Rockwell Automation Blog",
+    "Siemens Industrial Copilot",
+    "NVIDIA Omniverse Blog",
+    "Google Cloud Manufacturing Blog",
+    "Manufacturing.net",
+    "VDI Nachrichten Tech",
+    "Handelsblatt",
+    "Fraunhofer IPA Press",
+    "DFKI News",
+]
+
+# --- YouTube Focus Channels (优先频道白名单) ---
+# ----------------------------------------------
+YOUTUBE_FOCUS_CHANNELS_BY_REGION: dict[str, list[str]] = {
+    "US": [
+        "UCaEEm-0s0x3MHg9jzFcHuQQ",  # Siemens Knowledge Hub
+        "UCzFihlQ45oSUuxotAm6w0KA",  # siemens
+        "UCM_CsBtYQd5zVuYdwmNpT6g",  # ABB Robotics
+        "UC0q6j_EisHf1o_olWCvUHdA",  # Rockwell Automation
+        "UCnpqjEw2RHDBNVGDe8pI7tw",  # Schneider Electric
+        "UCr9G5B3I3iiPUk-bsQcA1lg",  # Bosch Rexroth
+        "UCzXmGvm1ami9yKhEcbREdaQ",  # Beckhoff Automation
+        "UCM09iVHDc416V8qLj-qhcWQ",  # Universal Robots
+        "UC1FuphciagC13Oz__5UPSYw",  # FANUC America Corporation
+        "UCSKUoczbGAcMld7HjpCR8OA",  # NVIDIA Omniverse
+        "UCaWe8GGxY3M7ACgdH1pfFuw",  # Hexagon Manufacturing Intelligence
+        "UCv7XrDJAwAPpaZOgpsyLG8A",  # IIoT World
+    ],
+    "DE": [
+        "UCLiDvwE91B9zF015Psf_xdA",  # FraunhoferIPA
+        "UCoEBqeN3sltnn4tkWBRot0w",  # Beckhoff Automation Deutschland
+        "UCVPf33n1Mr9gQL9clrxj2fQ",  # Schneider Electric Deutschland
+        "UCaEEm-0s0x3MHg9jzFcHuQQ",  # Siemens Knowledge Hub
+    ],
+}
+
 
 # --- Keyword Scoring Rules (Knowledge Graph) ---
 # --- 关键词评分规则 (筛选逻辑) ---
@@ -352,10 +461,11 @@ class DataSource:
     """
     name: str              # 数据源名称
     url: str               # URL 地址 (RSS feed 或 网页链接)
-    source_type: str       # 抓取类型 ("rss", "web", "dynamic")
+    source_type: str       # 抓取类型 ("rss", "web", "dynamic", "youtube")
     language: str          # 内容语言 ("de", "en", "zh")
     category: str          # 类别 ("research", "industry", "policy", "social")
     priority: int = 1      # 优先级 (1=Standard, 2=High, 3=Critical)
+    region_code: str = ""  # 可选: YouTube regionCode (e.g. "US", "DE")
 
 
 DATA_SOURCES: list[DataSource] = [
@@ -533,19 +643,21 @@ DATA_SOURCES: list[DataSource] = [
     ),
     # --- 4. YouTube Channels (Video) ---
     DataSource(
-        name="YouTube: Industrial AI",
-        url="Industrial AI",  # Search query
+        name="YouTube: Industrial AI (US)",
+        url='("industrial ai" OR "ai in manufacturing" OR "smart manufacturing" OR "industry 4.0" OR "digital twin" OR "factory automation" OR "predictive maintenance" OR "industrial robotics" OR "ot cybersecurity" OR "industrial iot") -job -hiring -career -course',
         source_type="youtube",
         language="en",
         category="industry",
         priority=2,
+        region_code="US",
     ),
     DataSource(
-        name="YouTube: Siemens",
-        url="Siemens Digital Industries Software",
+        name="YouTube: Industrial AI (DE)",
+        url='("industrie 4.0" OR "industrielle ki" OR "digitale zwillinge" OR "fabrikautomatisierung" OR "vorausschauende wartung" OR "industrierobotik" OR "ot-sicherheit" OR "industrial ai") -job -hiring -career -kurs',
         source_type="youtube",
-        language="en",
+        language="de",
         category="industry",
         priority=2,
+        region_code="DE",
     ),
 ]

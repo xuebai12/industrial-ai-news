@@ -67,12 +67,14 @@ def test_render_digest_technician_mode_styles():
     assert "letter-spacing: 0.02em;" in html
     assert "background: #f5f5f5;" in html
     assert "white-space: pre-line;" in html
+    assert "Kernfokus" in html
+    assert "Kernmechanismus" in html
     assert "border-left: 8px solid #1d4ed8;" in html
     assert "border-left: 8px solid #16a34a;" in html
     assert "border-left: 8px solid #ea580c;" in html
-    # tech-block now uses technician_analysis_de directly (not core_tech_points simplified)
-    assert "<strong>Lernen</strong>" in html  # from technician_analysis_de: "- Lernen schnell."
-    assert "<strong>Probleme</strong>" in html  # from technician_analysis_de: "Probleme bleiben."
+    assert "Lernen schnell" in html
+    assert "Probleme bleiben" in html
+    assert "Quelle:" not in html
 
 
 def test_render_digest_non_technician_no_mode_class():

@@ -57,6 +57,10 @@ I18N_LABELS = {
         "date_suffix": "Industrial AI & Simulation",
         "subject_suffix": "Industrial AI Digest",
         "footer": "Industrial AI Intelligence System",
+        "tech_highlight_label": "Technical Highlights",
+        "app_value_label": "Application Value",
+        "core_mechanism_label": "Core Mechanism",
+        "combined_focus_label": "Key Focus",
     },
     "zh": {
         "title": "工业 AI 每日摘要",
@@ -73,12 +77,16 @@ I18N_LABELS = {
         "date_suffix": "工业 AI 与仿真",
         "subject_suffix": "工业 AI 每日摘要",
         "footer": "Industrial AI Intelligence System",
+        "tech_highlight_label": "技术亮点",
+        "app_value_label": "应用价值",
+        "core_mechanism_label": "核心机制",
+        "combined_focus_label": "重点信息",
     },
     "de": {
         "title": "Industrial AI Tageszusammenfassung",
         "tagline": "Klare Signale: Relevante Updates fuer industrielle Entscheidungen und Umsetzung.",
         "stats": "Heute wurden <strong>{{ count }}</strong> relevante Berichte ausgewählt",
-        "simple_explain_label": "Einstieg: Was bedeutet das?",
+        "simple_explain_label": "Worauf achten?",
         "tech_points_label": "Was passiert technisch?",
         "application_label": "Welcher Nutzen entsteht?",
         "source_label": "Quelle",
@@ -89,6 +97,10 @@ I18N_LABELS = {
         "date_suffix": "Industrial AI und Simulation",
         "subject_suffix": "Industrial AI Tageszusammenfassung",
         "footer": "Industrial AI Intelligence System (DE)",
+        "tech_highlight_label": "Technische Highlights",
+        "app_value_label": "Anwendungswert",
+        "core_mechanism_label": "Kernmechanismus",
+        "combined_focus_label": "Kernfokus",
     },
 }
 
@@ -101,8 +113,8 @@ EMAIL_TEMPLATE = Template(
 <meta charset="utf-8">
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-         max-width: 760px; margin: 0 auto; padding: 20px; color: #1f2937; background: #f3f5f9; }
-  body.technician-mode { font-family: Arial, Helvetica, sans-serif; line-height: 1.6; letter-spacing: 0.02em; background: #f5f5f5; }
+         max-width: 920px; margin: 0 auto; padding: 20px; color: #1f2937; background: #f3f5f9; }
+  body.technician-mode, .technician-mode { font-family: Arial, Helvetica, sans-serif; line-height: 1.6; letter-spacing: 0.02em; background: #f5f5f5; }
   .header { background: linear-gradient(120deg, #0b3c7f, #0f5db8); color: #fff;
             padding: 22px; border-radius: 12px; margin-bottom: 14px; }
   .header h1 { margin: 0; font-size: 22px; letter-spacing: 0.2px; }
@@ -115,31 +127,44 @@ EMAIL_TEMPLATE = Template(
               padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
   .article h3 { margin: 8px 0 6px; font-size: 17px; color: #0f172a; }
   .subtle { font-size: 12px; color: #667085; margin-bottom: 10px; }
+  .quick-grid { width: 100%; border-collapse: separate; border-spacing: 8px; margin: 6px 0 10px; }
+  .quick-grid-title { font-size: 12px; font-weight: 700; color: #0b3c7f; text-transform: uppercase; letter-spacing: 0.2px; margin: 6px 0 2px; }
+  .quick-cell { width: 50%; vertical-align: top; }
+  .quick-card { border-radius: 8px; padding: 12px; min-height: 84px; }
+  .quick-card.blue { background: #eff6ff; border-left: 8px solid #1d4ed8; color: #1e3a8a; }
+  .quick-card.green { background: #f0fdf4; border-left: 8px solid #16a34a; color: #14532d; }
+  .quick-card.orange { background: #fff7ed; border-left: 8px solid #ea580c; color: #9a3412; }
+  .quick-card .label { margin-bottom: 8px; color: #111827; }
+  .quick-card .value { font-size: 15px; line-height: 1.75; white-space: pre-line; }
+  .focus-panel { margin: 10px 0 14px; background: #f8fafc; border: 1px solid #dbe3ee; border-radius: 10px; padding: 10px; }
+  .focus-title { font-size: 12px; font-weight: 700; color: #0b3c7f; text-transform: uppercase; letter-spacing: 0.2px; margin-bottom: 8px; }
+  .focus-cell { width: 50%; vertical-align: top; padding: 4px; }
+  .focus-item { background: #ffffff; border: 1px solid #dbe3ee; border-radius: 8px; padding: 10px; font-size: 13px; line-height: 1.55; color: #0f172a; min-height: 56px; }
   .row { margin: 8px 0; }
   .label { display: block; font-size: 12px; color: #475467; font-weight: 700; text-transform: uppercase;
            letter-spacing: 0.2px; margin-bottom: 4px; }
   .value { font-size: 14px; line-height: 1.6; color: #1f2937; }
-  body.technician-mode .article { border: 2px solid #d1d5db; background: #ffffff; }
-  body.technician-mode .row { margin: 0 0 34px; padding: 8px; border-radius: 8px; }
-  body.technician-mode .value { line-height: 1.8; letter-spacing: 0.02em; white-space: pre-line; padding: 12px 14px; border-radius: 6px; font-size: 16px; }
-  body.technician-mode .row.tech-block { background: #dbeafe; }
-  body.technician-mode .row.tech-block .value { border-left: 8px solid #1d4ed8; background: #eff6ff; color: #1e3a8a; }
-  body.technician-mode .row.benefit-block { background: #dcfce7; }
-  body.technician-mode .row.benefit-block .value { border-left: 8px solid #16a34a; background: #f0fdf4; color: #14532d; }
-  body.technician-mode .row.issue-block { background: #ffedd5; }
-  body.technician-mode .row.issue-block .value { border-left: 8px solid #ea580c; background: #fff7ed; color: #9a3412; }
-  body.technician-mode .row .label { margin-bottom: 10px; font-size: 13px; color: #111827; letter-spacing: 0.3px; }
-  body.technician-mode strong { font-size: 17px; }
+  body.technician-mode .article, .technician-mode .article { border: 2px solid #d1d5db; background: #ffffff; }
+  body.technician-mode .row, .technician-mode .row { margin: 0 0 34px; padding: 8px; border-radius: 8px; }
+  body.technician-mode .value, .technician-mode .value { line-height: 1.8; letter-spacing: 0.02em; white-space: pre-line; padding: 12px 14px; border-radius: 6px; font-size: 16px; }
+  body.technician-mode .row.tech-block, .technician-mode .row.tech-block { background: #dbeafe; }
+  body.technician-mode .row.tech-block .value, .technician-mode .row.tech-block .value { border-left: 8px solid #1d4ed8; background: #eff6ff; color: #1e3a8a; }
+  body.technician-mode .row.benefit-block, .technician-mode .row.benefit-block { background: #dcfce7; }
+  body.technician-mode .row.benefit-block .value, .technician-mode .row.benefit-block .value { border-left: 8px solid #16a34a; background: #f0fdf4; color: #14532d; }
+  body.technician-mode .row.issue-block, .technician-mode .row.issue-block { background: #ffedd5; }
+  body.technician-mode .row.issue-block .value, .technician-mode .row.issue-block .value { border-left: 8px solid #ea580c; background: #fff7ed; color: #9a3412; }
+  body.technician-mode .row .label, .technician-mode .row .label { margin-bottom: 10px; font-size: 13px; color: #111827; letter-spacing: 0.3px; }
+  body.technician-mode strong, .technician-mode strong { font-size: 17px; }
   @media (max-width: 640px) {
     body { padding: 12px; }
-    body.technician-mode .header { padding: 16px; }
-    body.technician-mode .article { padding: 12px; border-width: 2px; }
-    body.technician-mode .row { margin: 0 0 30px; padding: 6px; }
-    body.technician-mode .value { font-size: 17px; line-height: 1.85; padding: 12px; }
-    body.technician-mode .row.tech-block .value { border-left-width: 9px; }
-    body.technician-mode .row.benefit-block .value { border-left-width: 9px; }
-    body.technician-mode .row.issue-block .value { border-left-width: 9px; }
-    body.technician-mode .source { font-size: 14px; }
+    body.technician-mode .header, .technician-mode .header { padding: 16px; }
+    body.technician-mode .article, .technician-mode .article { padding: 12px; border-width: 2px; }
+    body.technician-mode .row, .technician-mode .row { margin: 0 0 30px; padding: 6px; }
+    body.technician-mode .value, .technician-mode .value { font-size: 17px; line-height: 1.85; padding: 12px; }
+    body.technician-mode .row.tech-block .value, .technician-mode .row.tech-block .value { border-left-width: 9px; }
+    body.technician-mode .row.benefit-block .value, .technician-mode .row.benefit-block .value { border-left-width: 9px; }
+    body.technician-mode .row.issue-block .value, .technician-mode .row.issue-block .value { border-left-width: 9px; }
+    body.technician-mode .source, .technician-mode .source { font-size: 14px; }
   }
   .source { margin-top: 10px; font-size: 13px; color: #344054; }
   .source a { color: #175cd3; text-decoration: none; }
@@ -147,6 +172,7 @@ EMAIL_TEMPLATE = Template(
 </style>
 </head>
 <body class="{{ 'technician-mode' if technician_mode else '' }}">
+  <div class="{{ 'technician-mode' if technician_mode else '' }}">
   <div class="header">
     <h1>{{ labels.title }}</h1>
     <div class="date">{{ today }} | {{ date_suffix }}</div>
@@ -161,32 +187,58 @@ EMAIL_TEMPLATE = Template(
     {% endif %}
     {% for article in group["items"] %}
   <div class="article">
+    {% if not technician_mode %}
     <span class="category">{{ article.category_tag }}</span>
+    {% endif %}
 
     <h3>{{ article.display_title }}</h3>
     {% if article.subtitle %}
     <div class="subtle">{{ article.title_en }}</div>
     {% endif %}
 
-    <div class="row{% if technician_mode %} tech-block{% endif %}">
+    {% if technician_mode %}
+    <div class="quick-grid-title">{{ labels.combined_focus_label }}</div>
+    <table class="quick-grid" role="presentation" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td class="quick-cell">
+          <div class="quick-card blue">
+            <div class="value">{{ article.tech_highlights }}</div>
+          </div>
+        </td>
+        <td class="quick-cell">
+          <div class="quick-card green">
+            <div class="value">{{ article.app_value }}</div>
+          </div>
+        </td>
+      </tr>
+    </table>
+    <div class="quick-card orange">
+      <span class="label">{{ labels.core_mechanism_label }}</span>
+      <div class="value">{{ article.core_mechanism }}</div>
+    </div>
+    {% else %}
+    <div class="row">
       <span class="label">{{ labels.tech_points_label }}</span>
       <div class="value">{{ article.core_tech_compact }}</div>
     </div>
 
-    <div class="row{% if technician_mode %} benefit-block{% endif %}">
+    <div class="row">
       <span class="label">{{ labels.application_label }}</span>
       <div class="value">{{ article.context_compact }}</div>
     </div>
 
-    <div class="row{% if technician_mode %} issue-block{% endif %}">
+    <div class="row">
       <span class="label">{{ labels.simple_explain_label }}</span>
       <div class="value">{{ article.simple_explanation }}</div>
     </div>
+    {% endif %}
 
+    {% if not technician_mode %}
     <div class="source">
       {{ labels.source_label }}: {{ article.source_name }} |
       <a href="{{ article.source_url }}">{{ labels.link_label }}</a>
     </div>
+    {% endif %}
   </div>
     {% endfor %}
   </div>
@@ -194,6 +246,7 @@ EMAIL_TEMPLATE = Template(
 
   <div class="footer">
     {{ labels.footer }}
+  </div>
   </div>
 </body>
 </html>
@@ -257,6 +310,60 @@ def _pick_explanation(article: AnalyzedArticle, persona: str) -> str:
         # Student digest should stay in English regardless of profile language.
         return (article.summary_en or article.simple_explanation or "N/A").strip()
     return (article.simple_explanation or article.summary_en or "N/A").strip()
+
+
+def _pick_technician_focus_note(article: AnalyzedArticle) -> str:
+    """Return a short German-only add-on note for technician digest."""
+    value = (article.summary_de or "").strip()
+    if value:
+        return value
+    return "Keine kurze deutsche Zusatznotiz verfuegbar."
+
+
+def _pick_technician_application_value(article: AnalyzedArticle) -> str:
+    """Return German-only application value text for technician digest."""
+    value = (article.summary_de or "").strip()
+    if value:
+        return value
+    return "Kein deutscher Anwendungshinweis verfuegbar."
+
+
+def _extract_technician_highlights(text: str, limit: int = 4) -> list[str]:
+    """Extract up to 4 concise German key points from technician text."""
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    parts = [
+        p.strip(" -•\t,;:")
+        for p in re.split(r"\n+|(?<=[.!?])\s+", raw)
+        if p.strip(" -•\t,;:")
+    ]
+    highlights: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        cleaned = re.sub(r"^(?:\d+[\.\)]\s*)", "", part).strip()
+        if not cleaned:
+            continue
+        words = cleaned.split()
+        if len(words) > 14:
+            cleaned = " ".join(words[:14]).rstrip(" ,;:.") + "."
+        key = cleaned.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        highlights.append(html.escape(cleaned))
+        if len(highlights) >= limit:
+            break
+    return highlights
+
+
+def _pair_highlights(items: list[str]) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for idx in range(0, len(items), 2):
+        left = items[idx]
+        right = items[idx + 1] if idx + 1 < len(items) else ""
+        rows.append((left, right))
+    return rows
 
 
 def _localize_context_for_technician(text: str) -> str:
@@ -451,6 +558,21 @@ def _normalize_theme(category_tag: str) -> str:
     return "Industry 4.0 & Automation"
 
 
+def _localize_theme_name(theme: str, lang: str, persona: str) -> str:
+    if persona != "technician" or lang != "de":
+        return theme
+    mapping = {
+        "AI": "KI",
+        "Industry 4.0 & Automation": "Industrie 4.0 & Automatisierung",
+        "OT Cybersecurity": "OT-Sicherheit",
+        "Semiconductors & Hardware": "Halbleiter & Hardware",
+        "Energy & Sustainability": "Energie & Nachhaltigkeit",
+        "Supply Chain & Logistics": "Lieferkette & Logistik",
+        "Standards & Regulation": "Normen & Regulierung",
+    }
+    return mapping.get(theme, theme)
+
+
 def _group_articles_by_theme(rendered_articles: list[dict[str, str]], max_per_group: int = 5) -> list[dict[str, object]]:
     order = [
         "AI",
@@ -516,23 +638,46 @@ def render_digest(
         if persona == "technician":
             core_text = (
                 article.technician_analysis_de
-                or article.core_tech_points
                 or "Keine technischen Kerndetails verfügbar."
             ).strip()
         else:
             core_text = (article.core_tech_points or "").strip() or "N/A"
-        # Orange issue-block always uses article.simple_explanation (beginner-friendly text).
+        # Orange issue-block:
+        # - technician: always short German note to avoid mixed-language artifacts
+        # - others: simple explanation as before
         simple_explanation = (article.simple_explanation or "").strip() or "N/A"
         if persona == "student":
             # Student digest should stay in English regardless of profile language.
             simple_explanation = (article.summary_en or article.simple_explanation or "N/A").strip()
         if technician_mode:
+            simple_explanation = _pick_technician_focus_note(article)
             core_text = _simplify_for_beginner_de(core_text)
-            context_text = _simplify_for_beginner_de(context_text)
+            context_text = _simplify_for_beginner_de(_pick_technician_application_value(article))
             simple_explanation = _simplify_for_beginner_de(simple_explanation)
-            core_text = _emphasize_sentence_leads_html(core_text)
-            context_text = _emphasize_sentence_leads_html(context_text)
-            simple_explanation = _emphasize_sentence_leads_html(simple_explanation)
+            highlight_rows = _pair_highlights(_extract_technician_highlights(core_text, limit=4))
+            # Keep plain text for better readability and stable Gmail rendering.
+            core_text = html.escape(core_text)
+            context_text = html.escape(context_text)
+            simple_explanation = html.escape(simple_explanation)
+            flat_highlights: list[str] = []
+            for left, right in highlight_rows:
+                if left:
+                    flat_highlights.append(left)
+                if right:
+                    flat_highlights.append(right)
+            tech_highlights = "<br>".join(flat_highlights) or core_text
+            app_value = context_text
+            core_mechanism_raw = (
+                article.technician_analysis_de
+                or article.summary_de
+                or "Keine Kernmechanik verfuegbar."
+            )
+            core_mechanism = html.escape(_simplify_for_beginner_de(core_mechanism_raw))
+        else:
+            highlight_rows = []
+            tech_highlights = ""
+            app_value = ""
+            core_mechanism = ""
 
         rendered_articles.append(
             {
@@ -543,6 +688,10 @@ def render_digest(
                 "core_tech_compact": core_text,
                 "context_compact": context_text,
                 "simple_explanation": (simple_explanation or "N/A").strip(),
+                "highlight_rows": highlight_rows,
+                "tech_highlights": tech_highlights,
+                "app_value": app_value,
+                "core_mechanism": core_mechanism,
                 "source_name": article.source_name,
                 "source_url": article.source_url,
             }
@@ -551,6 +700,9 @@ def render_digest(
     grouped_articles = _group_articles_by_theme(rendered_articles, max_per_group=5)
     if not grouped_articles:
         grouped_articles = [{"name": labels.get("overview_title", "Overview"), "items": []}]
+    else:
+        for group in grouped_articles:
+            group["name"] = _localize_theme_name(str(group.get("name", "")), lang=lang, persona=persona)
 
     # Pre-compute the stats string to avoid the Jinja2 "replace {{ count }}" anti-pattern.
     stats_text = labels["stats"].replace("{{ count }}", str(len(articles)))

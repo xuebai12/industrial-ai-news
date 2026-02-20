@@ -1,91 +1,91 @@
-import unittest
-from unittest.mock import MagicMock, patch
-import os
-import sys
+from unittest.mock import patch
 
-# Ensure src is in path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-from src.models import Article
 from src.filters import ollama_filter
+from src.models import Article
 
-class TestOllamaFilterLogic(unittest.TestCase):
-    def setUp(self):
-        # Create dummy articles
-        self.articles = [
-            Article(title="Keep Me", url="u1", source="s", content_snippet="c", language="en", category="t"),
-            Article(title="Drop Me", url="u2", source="s", content_snippet="c", language="en", category="t"),
-            Article(title="Maybe Keep Me", url="u3", source="s", content_snippet="c", language="en", category="t"),
-        ]
 
-    @patch('src.filters.ollama_filter.keyword_score')
-    @patch('src.filters.ollama_filter.llm_relevance_check')
-    def test_filter_logic(self, mock_llm, mock_kw):
-        # Setup mocks
-        mock_kw.side_effect = lambda a: (3, ['student']) # All pass keyword check
+def _article(title: str, snippet: str = "", source: str = "UnitTest") -> Article:
+    return Article(
+        title=title,
+        url=f"https://example.com/{abs(hash(title))}",
+        source=source,
+        content_snippet=snippet,
+        language="en",
+        category="research",
+    )
 
-        def llm_side_effect(article):
-            if "Keep" in article.title and "Maybe" not in article.title:
-                return True
-            if "Drop" in article.title:
-                return False
-            if "Maybe" in article.title:
-                return None
-            return False
 
-        mock_llm.side_effect = llm_side_effect
+def test_theory_only_without_industry_is_downranked():
+    article = _article(
+        "Spatio-temporal dual-stage hypergraph MARL theorem proof for traffic signal control",
+    )
+    score, personas = ollama_filter.keyword_score(article)
+    assert score <= 1
+    assert "technician" not in personas
 
-        # Run filter
-        # We need to ensure relevance score is set correctly.
-        # keyword_score returns score, personas.
-        # filter_articles sets article.relevance_score = score
 
-        # However, for "Maybe Keep Me", we need score >= 2 for fallback logic.
-        # keyword_score returns 3, so fallback logic applies (3 >= 2).
+def test_theory_with_industry_context_passes():
+    article = _article(
+        "Deep reinforcement learning for factory scheduling",
+        "Industrial manufacturing production line with MES and PLC closed-loop control.",
+    )
+    score, personas = ollama_filter.keyword_score(article)
+    assert score >= 2
+    assert "student" in personas or "technician" in personas
 
-        # We need to mock MIN_RELEVANT_ARTICLES to 0 to avoid that logic interfering
-        with patch('src.filters.ollama_filter.MIN_RELEVANT_ARTICLES', 0):
-            result = ollama_filter.filter_articles(self.articles, skip_llm=False)
 
-        # Verify
-        # "Keep Me" -> True -> Kept
-        # "Drop Me" -> False -> Dropped
-        # "Maybe Keep Me" -> None, score 3 -> Kept (fallback)
+def test_industrial_practical_terms_mark_technician():
+    article = _article(
+        "Predictive maintenance with PLC and MES improves OEE on shopfloor line",
+    )
+    score, personas = ollama_filter.keyword_score(article)
+    assert score >= 3
+    assert "technician" in personas
 
-        titles = [a.title for a in result]
-        self.assertIn("Keep Me", titles)
-        self.assertIn("Maybe Keep Me", titles)
-        self.assertNotIn("Drop Me", titles)
-        self.assertEqual(len(result), 2)
 
-    @patch('src.filters.ollama_filter.keyword_score')
-    @patch('src.filters.ollama_filter.llm_relevance_check')
-    def test_filter_logic_fallback_fail(self, mock_llm, mock_kw):
-        # Test case where Maybe article has low score
+@patch("src.filters.ollama_filter.keyword_score", return_value=(4, ["student"]))
+@patch("src.filters.ollama_filter.llm_relevance_check", return_value=None)
+def test_llm_none_high_score_without_industry_is_blocked(mock_llm, mock_kw):
+    article = _article(
+        "Formal logic theorem for hypergraph reasoning benchmark",
+        source="Generic Research Feed",
+    )
+    with patch("src.filters.ollama_filter.MIN_RELEVANT_ARTICLES", 0):
+        result = ollama_filter.filter_articles([article], skip_llm=False)
+    assert len(result) == 0
 
-        def kw_side_effect(article):
-            if "Maybe" in article.title:
-                return 1, ['student'] # Low score < 2 but >= RELEVANCE_THRESHOLD (1)
-            return 3, ['student']
 
-        mock_kw.side_effect = kw_side_effect
+@patch("src.filters.ollama_filter.keyword_score", return_value=(3, ["student"]))
+@patch("src.filters.ollama_filter.llm_relevance_check", return_value=False)
+def test_min_volume_fallback_does_not_add_non_industry(mock_llm, mock_kw):
+    article = _article(
+        "Formal logic theorem for hypergraph reasoning benchmark",
+        source="Generic Research Feed",
+    )
+    with patch("src.filters.ollama_filter.MIN_RELEVANT_ARTICLES", 1):
+        result = ollama_filter.filter_articles([article], skip_llm=False)
+    assert len(result) == 0
 
-        def llm_side_effect(article):
-            if "Maybe" in article.title:
-                return None
-            return True # Others keep
 
-        mock_llm.side_effect = llm_side_effect
+@patch("src.filters.ollama_filter.keyword_score", return_value=(3, ["student"]))
+@patch("src.filters.ollama_filter.llm_relevance_check", return_value=False)
+def test_min_volume_fallback_adds_industry_context_article(mock_llm, mock_kw):
+    article = _article(
+        "Industrial manufacturing planning with PLC and MES",
+        source="Generic Research Feed",
+    )
+    with patch("src.filters.ollama_filter.MIN_RELEVANT_ARTICLES", 1):
+        result = ollama_filter.filter_articles([article], skip_llm=False)
+    assert len(result) == 1
+    assert result[0].title == article.title
 
-        articles = [
-            Article(title="Maybe Drop Me", url="u3", source="s", content_snippet="c", language="en", category="t"),
-        ]
 
-        with patch('src.filters.ollama_filter.MIN_RELEVANT_ARTICLES', 0):
-            result = ollama_filter.filter_articles(articles, skip_llm=False)
-
-        # "Maybe Drop Me" -> None, score 1 -> Dropped (fallback requires >= 2)
-        self.assertEqual(len(result), 0)
-
-if __name__ == '__main__':
-    unittest.main()
+@patch("src.filters.ollama_filter.keyword_score")
+@patch("src.filters.ollama_filter.llm_relevance_check")
+def test_llm_none_fallback_keeps_industry_high_score(mock_llm, mock_kw):
+    article = _article("Adaptive control for factory line scheduling with MES")
+    mock_kw.return_value = (3, ["student"])
+    mock_llm.return_value = None
+    with patch("src.filters.ollama_filter.MIN_RELEVANT_ARTICLES", 0):
+        result = ollama_filter.filter_articles([article], skip_llm=False)
+    assert len(result) == 1

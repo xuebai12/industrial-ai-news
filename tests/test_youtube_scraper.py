@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 import pytest
 import os
-from src.scrapers.youtube_scraper import scrape_youtube
+from src.scrapers.youtube_scraper import scrape_youtube, scrape_youtube_focus_channels
 
 @patch("src.scrapers.youtube_scraper.build")
 @patch.dict(os.environ, {"YOUTUBE_API_KEY": "fake_key"})
@@ -55,3 +55,62 @@ def test_scrape_youtube_api_error(mock_build):
     
     results = scrape_youtube("Test Source", "query", "en", "industry")
     assert len(results) == 0
+
+
+@patch("src.scrapers.youtube_scraper.build")
+@patch.dict(os.environ, {"YOUTUBE_API_KEY": "fake_key"})
+def test_scrape_youtube_focus_channels_success(mock_build):
+    mock_youtube = MagicMock()
+    mock_build.return_value = mock_youtube
+    mock_list = mock_youtube.search.return_value.list
+
+    # Return one video for first channel, duplicate + one new for second channel.
+    resp1 = {
+        "items": [
+            {
+                "id": {"videoId": "dup123"},
+                "snippet": {
+                    "title": "Focus Video A",
+                    "description": "A",
+                    "publishedAt": "2026-02-20T10:00:00Z",
+                },
+            }
+        ]
+    }
+    resp2 = {
+        "items": [
+            {
+                "id": {"videoId": "dup123"},
+                "snippet": {
+                    "title": "Focus Video A",
+                    "description": "A",
+                    "publishedAt": "2026-02-20T10:00:00Z",
+                },
+            },
+            {
+                "id": {"videoId": "new456"},
+                "snippet": {
+                    "title": "Focus Video B",
+                    "description": "B",
+                    "publishedAt": "2026-02-20T11:00:00Z",
+                },
+            },
+        ]
+    }
+    mock_list.return_value.execute.side_effect = [resp1, resp2]
+
+    results = scrape_youtube_focus_channels(
+        name="Focus",
+        query="industrial ai",
+        language="en",
+        category="industry",
+        channel_ids=["ch1", "ch2"],
+        max_items=5,
+        region_code="US",
+        video_duration="medium",
+        safe_search="moderate",
+    )
+
+    assert len(results) == 2
+    assert results[0].url == "https://www.youtube.com/watch?v=dup123"
+    assert results[1].url == "https://www.youtube.com/watch?v=new456"

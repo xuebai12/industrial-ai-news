@@ -206,12 +206,41 @@ def _normalize_technician_text_de(text: str) -> str:
     if not base:
         return fallback
     de_noisy = base.replace("->", " -> ").replace("|", ". ")
+    de_noisy = re.sub(r"[{}\"'`]", " ", de_noisy)
     de_noisy = _split_german_compounds(de_noisy)
     lines = _enforce_short_sentences_de(de_noisy)
     if not lines:
         return fallback
-    capped = [f"- {line}" for line in lines[:8]]
+    compact: list[str] = []
+    for line in lines:
+        words = line.split()
+        if len(words) > 16:
+            line = " ".join(words[:16]).rstrip(" ,;:.") + "."
+        compact.append(line)
+    capped = [f"- {line}" for line in compact[:4]]
     return "\n".join(capped)
+
+
+def _normalize_simple_explanation(text: str) -> str:
+    """Keep only a concise student-facing summary (1-2 short sentences)."""
+    fallback = "核心结论：该技术可用于工业场景，建议关注可落地性与风险边界。"
+    raw = re.sub(r"\s+", " ", (text or "").strip())
+    if not raw:
+        return fallback
+    cleaned = re.sub(r"[{}\"'`]", " ", raw)
+    parts = [
+        p.strip(" -•\t,;:")
+        for p in re.split(r"[。！？!?;\n]+", cleaned)
+        if p.strip(" -•\t,;:")
+    ]
+    if not parts:
+        return fallback
+    concise = "；".join(parts[:2]).strip()
+    if len(concise) > 110:
+        concise = concise[:109].rstrip(" ,;:") + "…"
+    if not concise.endswith(("。", ".", "！", "!", "？", "?")):
+        concise += "。"
+    return concise
 
 
 def _get_client() -> OpenAI:
@@ -410,6 +439,7 @@ def _normalize_analyzed_payload(data: dict, article: Article) -> dict:
     if not normalized.get("simple_explanation"):
         summary = normalized.get("summary_zh") or normalized.get("summary_en") or ""
         normalized["simple_explanation"] = f"【AI 自动生成】{summary}" if summary else f"原文摘要: {article.content_snippet[:200]}..."
+    normalized["simple_explanation"] = _normalize_simple_explanation(str(normalized.get("simple_explanation", "")))
 
     if not normalized.get("technician_analysis_de"):
         summary_de = normalized.get("summary_de") or normalized.get("summary_en") or ""
@@ -510,10 +540,14 @@ Constraint (核心限制):
 2. 双语对齐：关键术语保留德语和英文原词并附带中文注释。
 3. 输出结构要求（industry_analysis 对应 technician_analysis_de 字段）：
    - technician_analysis_de 必须使用德语（German）输出。
-   - 按三个支柱分点输出，避免泛泛而谈。
-   - 每点包含“判断 + 工业影响 + 落地约束/前提”。
+   - 只写技术员关注点，不写长篇解释。
+   - 输出 2-4 条短句要点，每条最多 16 个词。
+   - 每条包含“判断 + 工业影响/维护动作”。
    - 仅讨论行业决策与落地，不重复学生视角的原理讲解。
    - 优先给出机械制造场景下的可执行建议。
+4. 简洁要求：
+   - simple_explanation 只保留 1-2 句中文摘要。
+   - 避免比喻、背景故事、长段落。
 
 这是背景设定。现在，作为分析师，请分析给定文章，并输出**纯 JSON**（无其他文字）。
 
@@ -529,8 +563,8 @@ JSON 格式:
     "core_tech_points": "核心技术要点",
     "german_context": "德方应用背景",
     "tool_stack": "使用的软件工具",
-    "simple_explanation": "深度通俗解读(学生视角): 解释技术逻辑与痛点",
-    "technician_analysis_de": "Industry Analysis in German only: decision-making and implementation focus, structured by the three pillars."
+    "simple_explanation": "一句话/两句话中文摘要（学生视角，简洁）",
+    "technician_analysis_de": "Deutsch, 2-4 kurze Stichpunkte nur für Technikerfokus."
 }
 
 类别选项: Digital Twin / Industry 4.0 / Simulation / AI / Research
@@ -543,10 +577,9 @@ SIMPLE_JSON_PROMPT = (
     '"category_tag", "title_zh", "title_en", "title_de", "summary_zh", "summary_en", "summary_de", '
     '"core_tech_points", "german_context", "tool_stack", "simple_explanation", "technician_analysis_de". '
     "No explanation, no markdown, ONLY JSON. "
-    "simple_explanation must stay student-friendly and explain technical logic clearly. "
-    "technician_analysis_de must be in German, industry-focused on decision-making and implementation only, "
-    "and structured by three pillars: "
-    "Reliability & Determinism, Convergence of Physics & Digital, Protection of Long-term Assets."
+    "simple_explanation must be concise Chinese summary in 1-2 short sentences. "
+    "technician_analysis_de must be in German with 2-4 short bullet points, max 16 words each, "
+    "focused on technician actions and industrial impact only."
 )
 
 
@@ -609,10 +642,9 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
                     'Required keys: category_tag,title_zh,title_en,title_de,summary_zh,summary_en,summary_de,'
                     'core_tech_points,german_context,tool_stack,simple_explanation,technician_analysis_de. '
                     'Use empty string if unknown. '
-                    'simple_explanation must stay student-friendly. '
-                    'technician_analysis_de must be in German and only cover industry decision-making and implementation, '
-                    'with these three pillars: '
-                    'Reliability & Determinism, Convergence of Physics & Digital, Protection of Long-term Assets.'
+                    'simple_explanation must be concise Chinese summary (1-2 short sentences). '
+                    'technician_analysis_de must be German, 2-4 short bullet points, max 16 words each, '
+                    'technician focus only.'
                 )
                 data = _call_and_parse(client, minimal_prompt, minimal_user_content)
         else:
@@ -658,6 +690,7 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
         target_personas=article.target_personas, # List type is expected here
         original=article,
     )
+    analyzed.simple_explanation = _normalize_simple_explanation(analyzed.simple_explanation)
     analyzed.technician_analysis_de = _normalize_technician_text_de(analyzed.technician_analysis_de)
 
     logger.info(f"[{API_PROVIDER}] ✅ Analyzed: [{analyzed.category_tag}] {analyzed.title_zh[:50]}")
