@@ -128,8 +128,18 @@ def llm_relevance_check(article: Article) -> bool | None:
         prompt = (
             f"Title: {article.title}\n"
             f"Snippet: {article.content_snippet[:300]}\n\n"
-            "Is this article about industrial AI, discrete event simulation, "
-            "digital twin, or smart manufacturing? Reply with only YES or NO."
+            "Decide relevance for this newsletter.\n"
+            "Return YES only if BOTH conditions are true:\n"
+            "1) The content is clearly AI-related (e.g., AI/ML/LLM/computer vision/predictive model).\n"
+            "2) The AI use case is in at least one target industrial domain:\n"
+            "- Factory (including: design & R&D, production/process optimization, quality/defect analysis, asset ops/predictive maintenance)\n"
+            "- Robotics\n"
+            "- Automotive\n"
+            "- Supply Chain\n"
+            "- Energy\n"
+            "- Cybersecurity (OT/ICS)\n"
+            "If it is only generic industry/automotive/business news without concrete AI application, return NO.\n"
+            "Reply with only YES or NO."
         )
 
         response = client.chat.completions.create(
@@ -138,7 +148,8 @@ def llm_relevance_check(article: Article) -> bool | None:
                 {
                     "role": "system",
                     "content": (
-                        "You are a relevance filter for industrial technology news. "
+                        "You are a strict relevance filter for industrial AI news. "
+                        "Require explicit AI signal and target-domain fit. "
                         "Reply with only YES or NO."
                     ),
                 },

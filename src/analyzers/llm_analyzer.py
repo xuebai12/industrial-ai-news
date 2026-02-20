@@ -123,16 +123,33 @@ def _extract_json(text: str) -> dict | None:
 # 系统提示词 (System Prompt)
 # 指导 LLM 以特定 JSON 格式输出分析结果
 SYSTEM_PROMPT = """\
-Role: 你是一位深耕德国工业 4.0 领域的资深技术专家，擅长连接自动化工程（OT）与数据科学（IT）。
+Role: 你是一位工业 AI 研究与落地分析师，面向制造业决策与实施团队输出可执行解读。
 
-Task: 请针对以下抓取到的技术动态，进行“一文两看”的多视角深度分析，分别面向“专业学生”和“现场技术员”。
+Task: 请针对抓取到的技术动态，进行“一文两看”分析，分别面向“学生（英文模板）”和“行业技术员（德文模板）”。
 
 Constraint (核心限制):
-1. 场景化链接：必须将内容关联到 Siemens TIA Portal（如 PLC 编程、HMI 组态）和 Jupyter Notebook（如数据清洗、模型训练）。
-2. 拒绝陈词滥调：
-   - 学生视角：解释数据流向（传感器 -> PLC -> Jupyter -> 仿真模型）。
-   - 技术员视角：关注维护（Instandhaltung）、设备可用性（Anlagenverfügbarkeit）和 OEE。
-3. 双语对齐：关键术语保留德语和英文原词并附带中文注释。
+1. 删除固定工具绑定：不要强制关联 Siemens TIA Portal 或 Jupyter Notebook。
+2. 领域对齐：优先贴合 6 大领域（工厂、机器人、汽车、供应链、能源、网络安全），并可映射工厂 4 子类（设计研发、工艺优化、质量缺陷、运维预测）。
+3. 语言一致性：
+   - student 输出依赖英文字段；
+   - technician 输出依赖德文字段；
+   - 中文来源也必须给出可用的英文/德文翻译字段。
+4. 模板字段约束（必须严格遵守）：
+   - german_context（对应 Kernfokus）：
+     - 德语 2-4 条短句；
+     - 每条必须同时包含“工业场景（在哪个流程/车间/系统）+ AI 应用方式（AI如何被用）”；
+     - 禁止空泛表述，禁止只写政策或口号。
+   - technician_analysis_de（对应 Kernmechanismus）：
+     - 德语 2-4 条短句；
+     - 每条包含“通俗比喻 + 运作步骤 + 1个落地动作”；
+     - 写给没有编程经验的一线人员，语言直白可执行。
+   - simple_explanation：
+     - 仅给 student 使用；
+     - 固定 2 句中文结论，直接说明 AI 做了什么和带来什么变化。
+5. 按“每个点做 AI 解读”输出：每条内容都要回答这 3 个问题：
+   - AI 在这里做了什么（感知/预测/优化/决策）？
+   - 对业务流程带来什么变化（效率/质量/风险/成本）？
+   - 落地需要哪些条件（数据、系统、组织、合规）？
 
 这是背景设定。现在，作为分析师，请分析给定文章，并输出**纯 JSON**（无其他文字）。
 
@@ -148,12 +165,11 @@ JSON 格式:
     "core_tech_points": "核心技术要点",
     "german_context": "德方应用背景",
     "tool_stack": "使用的软件工具",
-    "simple_explanation": "深度通俗解读(学生视角/中文): 关联TIA/Jupyter/痛点",
-    "technician_analysis_de": "Technician Analysis (German): Focus on Maintenance, PLC/SPS, OEE, TIA Portal integration. Professional tone (VDI standard)."
+    "simple_explanation": "中文简短解读：AI做了什么、带来什么变化、落地要点",
+    "technician_analysis_de": "Deutsch, 2-4 kurze Punkte: Urteil + Business-Impact + naechster Umsetzungsschritt."
 }
 
 类别选项: Digital Twin / Industry 4.0 / Simulation / AI / Research
-重点关注: VDI标准, AAS(Verwaltungsschale), 工业软件工具名称
 只输出JSON，不要任何解释文字。
 """
 
@@ -161,7 +177,13 @@ SIMPLE_JSON_PROMPT = (
     'You are a JSON generator. Output ONLY a JSON object with these keys: '
     '"category_tag", "title_zh", "title_en", "title_de", "summary_zh", "summary_en", "summary_de", '
     '"core_tech_points", "german_context", "tool_stack", "simple_explanation", "technician_analysis_de". '
-    "No explanation, no markdown, ONLY JSON."
+    "No explanation, no markdown, ONLY JSON. "
+    "Do not force Siemens TIA Portal or Jupyter references. "
+    "Align to 6 domains: factory, robotics, automotive, supply chain, energy, cybersecurity. "
+    "german_context is Kernfokus: provide 2-4 German short points, each must include industrial scene + how AI is applied. "
+    "technician_analysis_de is Kernmechanismus: 2-4 German short points with metaphor + mechanism steps + concrete next action. "
+    "simple_explanation is student-only and must be exactly 2 Chinese sentences. "
+    "For each key point, reflect AI function, business impact, and implementation requirement."
 )
 
 

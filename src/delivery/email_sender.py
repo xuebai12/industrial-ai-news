@@ -171,17 +171,22 @@ def render_digest(
 
     rendered_articles = []
     for article in articles:
-        simple_explanation = (
-            article.technician_analysis_de if persona == "technician" else article.simple_explanation
-        )
+        if persona == "technician":
+            context_compact = _clip(article.german_context or "N/A", 200)
+            mechanism_text = article.technician_analysis_de or article.core_tech_points or "N/A"
+            explain_compact = _clip(mechanism_text, 220)
+        else:
+            context_compact = _clip(article.german_context or "N/A", 140)
+            explain_compact = _clip(article.simple_explanation or "N/A", 200)
+
         rendered_articles.append(
             {
                 "category_tag": article.category_tag,
                 "display_title": _clip(_pick_title(article, lang), 90),
                 "title_en": _clip(article.title_en or "", 110),
                 "core_tech_compact": _clip(article.core_tech_points or "N/A", 130),
-                "context_compact": _clip(article.german_context or "N/A", 140),
-                "simple_explanation": _clip(simple_explanation or "N/A", 200),
+                "context_compact": context_compact,
+                "simple_explanation": explain_compact,
                 "source_name": article.source_name,
                 "source_url": article.source_url,
             }
