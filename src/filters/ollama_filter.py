@@ -7,6 +7,7 @@
 import logging
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 from openai import OpenAI
 
@@ -19,11 +20,14 @@ from config import (
     LLM_BASE_URL,
     LLM_MODEL,
     RELEVANCE_THRESHOLD,
+    API_PROVIDER,
 )
 
 logger = logging.getLogger(__name__)
 _relevance_client: OpenAI | None = None
 MIN_RELEVANT_ARTICLES = max(0, int(os.getenv("MIN_RELEVANT_ARTICLES", "5")))
+IS_LOCAL = API_PROVIDER == "Local_Ollama"
+MAX_CONCURRENCY = max(1, int(os.getenv("KIMI_MAX_CONCURRENCY", "1" if IS_LOCAL else "4")))
 
 # 宽进：补充更通用的工业 AI 主题词，覆盖标题/摘要中的常见表达
 BROAD_KEYWORDS = [
@@ -195,14 +199,25 @@ def filter_articles(articles: list[Article], skip_llm: bool = False) -> list[Art
         result = scored
     else:
         result = []
-        for article in scored:
-            llm_result = llm_relevance_check(article)
-            if llm_result is True:
-                result.append(article)
-                continue
-            if llm_result is None and article.relevance_score >= 2:
-                # 严出兜底：仅在 LLM 不可判定时放行高分项，避免整批为 0。
-                result.append(article)
+        with ThreadPoolExecutor(max_workers=MAX_CONCURRENCY) as executor:
+            future_to_article = {
+                executor.submit(llm_relevance_check, article): article
+                for article in scored
+            }
+            for future in future_to_article:
+                article = future_to_article[future]
+                try:
+                    llm_result = future.result()
+                except Exception as e:
+                    logger.error(f"LLM check failed for {article.title[:30]}: {e}")
+                    llm_result = None
+
+                if llm_result is True:
+                    result.append(article)
+                    continue
+                if llm_result is None and article.relevance_score >= 2:
+                    # 严出兜底：仅在 LLM 不可判定时放行高分项，避免整批为 0。
+                    result.append(article)
         logger.info(f"[FILTER] {len(result)}/{len(scored)} passed LLM Cloud validation")
 
     # Ensure a minimum daily volume for digest stability.

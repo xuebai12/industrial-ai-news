@@ -374,29 +374,29 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
                 for profile in RECIPIENT_PROFILES:
                     if profile.delivery_channel not in ("email", "both"):
                         continue
-                        
+
                     # Filter articles for this persona
                     # Logic: Include if article is explicitly tagged for this persona,
                     # OR if article has no tags and this is the default "student" persona.
                     profile_articles = [
-                        a for a in analyzed 
+                        a for a in analyzed
                         if profile.persona in (a.target_personas or [])
                         or (not a.target_personas and profile.persona == "student")
                     ]
-                    
+
                     if not profile_articles:
                         logger.info(f"[DELIVERY] No articles for profile '{profile.name}'")
                         continue
-                        
+
                     logger.info(f"[DELIVERY] Sending {len(profile_articles)} articles to '{profile.name}'")
                     success = send_email(profile_articles, today, profile=profile)
-                    
+
                     if args.strict and not success:
                          logger.error(f"[DELIVERY] Failed to send email to '{profile.name}'")
                          # In strict mode, maybe we should raise? But let's verify other profiles first or fail hard.
                          # User requested "fail run on any critical stage error"
                          raise RuntimeError(f"Email delivery failed for profile {profile.name}")
-                
+
                 result.email_sent = True # Mark as sent if we got here (individual failures raised if strict)
 
             if args.output in ("markdown", "both"):

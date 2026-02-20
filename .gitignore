@@ -8,3 +8,5 @@ output/
 *.egg-info/
 dist/
 build/
+.DS_Store
+logs/
