@@ -498,20 +498,20 @@ def _derive_safe_fallback(article: Article) -> AnalyzedArticle:
 SYSTEM_PROMPT = """\
 Role: 你是一位深耕德国工业 4.0 领域的资深技术专家，擅长连接自动化工程（OT）与数据科学（IT）。
 
-Task: 请针对以下抓取到的技术动态，进行“一文两看”的多视角深度分析，分别面向“专业学生”和“现场技术员”。
+Task: 请针对以下抓取到的技术动态，进行“一文两看”的多视角深度分析，分别面向“专业学生”和“行业视角（机械/制造企业决策与实施团队）”。
 
 Constraint (核心限制):
-1. 场景化链接：必须将内容关联到 Siemens TIA Portal（如 PLC 编程、HMI 组态）和 Jupyter Notebook（如数据清洗、模型训练）。
-2. 拒绝陈词滥调：
+1. 拒绝陈词滥调：
    - 学生视角：解释数据流向（传感器 -> PLC -> Jupyter -> 仿真模型）。
-   - 技术员视角：关注维护（Instandhaltung）、设备可用性（Anlagenverfügbarkeit）和 OEE。
-3. 双语对齐：关键术语保留德语和英文原词并附带中文注释。
-4. 阅读障碍友好（technician_analysis_de 必须遵守）：
-   - 使用短句：每句目标 12-16 词，最多 20 词。
-   - 一句一意，避免多重从句。
-   - 德语复合词在必要时使用连字符拆分（例：Zuverlaessigkeits-Modellierung）。
-   - 结构使用 2-4 个短段或短列表，禁止密集长段落。
-   - 术语首次出现时给极简德语解释（不超过 8 词）。
+   - 行业视角：必须严格基于以下三个支柱组织分析：
+     Reliability & Determinism：机械行业容错率接近零，强调确定性结果与可验证性，避免“幻觉”风险。
+     Convergence of Physics & Digital：强调 AI 对热力学、流体力学、材料疲劳等物理机理的结合能力，而非仅文本处理。
+     Protection of Long-term Assets：强调在不泄露核心工艺数据前提下应用 AI，保护知识产权与长期资产。
+2. 双语对齐：关键术语保留德语和英文原词并附带中文注释。
+3. 输出结构要求（industry_analysis 对应 technician_analysis_de 字段）：
+   - 按三个支柱分点输出，避免泛泛而谈。
+   - 每点包含“判断 + 工业影响 + 落地约束/前提”。
+   - 优先给出机械制造场景下的可执行建议。
 
 这是背景设定。现在，作为分析师，请分析给定文章，并输出**纯 JSON**（无其他文字）。
 
@@ -527,8 +527,8 @@ JSON 格式:
     "core_tech_points": "核心技术要点",
     "german_context": "德方应用背景",
     "tool_stack": "使用的软件工具",
-    "simple_explanation": "深度通俗解读(学生视角/中文): 关联TIA/Jupyter/痛点",
-    "technician_analysis_de": "Technician Analysis (German): Focus on Maintenance, PLC/SPS, OEE, TIA Portal integration. Professional tone (VDI standard)."
+    "simple_explanation": "深度通俗解读(学生视角): 解释技术逻辑与痛点",
+    "technician_analysis_de": "Industry Analysis: Use the three pillars (Reliability & Determinism, Convergence of Physics & Digital, Protection of Long-term Assets)."
 }
 
 类别选项: Digital Twin / Industry 4.0 / Simulation / AI / Research
@@ -541,7 +541,9 @@ SIMPLE_JSON_PROMPT = (
     '"category_tag", "title_zh", "title_en", "title_de", "summary_zh", "summary_en", "summary_de", '
     '"core_tech_points", "german_context", "tool_stack", "simple_explanation", "technician_analysis_de". '
     "No explanation, no markdown, ONLY JSON. "
-    "For technician_analysis_de use short German sentences (max 20 words each) and split long compounds with hyphens."
+    "simple_explanation must stay student-friendly and explain technical logic clearly. "
+    "technician_analysis_de must be industry-focused and structured by three pillars: "
+    "Reliability & Determinism, Convergence of Physics & Digital, Protection of Long-term Assets."
 )
 
 
@@ -604,7 +606,9 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
                     'Required keys: category_tag,title_zh,title_en,title_de,summary_zh,summary_en,summary_de,'
                     'core_tech_points,german_context,tool_stack,simple_explanation,technician_analysis_de. '
                     'Use empty string if unknown. '
-                    'technician_analysis_de must use short German sentences (max 20 words) and hyphenated compounds when needed.'
+                    'simple_explanation must stay student-friendly. '
+                    'technician_analysis_de must be industry-focused with these three pillars: '
+                    'Reliability & Determinism, Convergence of Physics & Digital, Protection of Long-term Assets.'
                 )
                 data = _call_and_parse(client, minimal_prompt, minimal_user_content)
         else:
