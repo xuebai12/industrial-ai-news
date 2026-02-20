@@ -82,3 +82,18 @@ def test_render_digest_non_technician_no_mode_class():
     article = _make_article()
     html = render_digest([article], "2026-02-19", Profile())
     assert 'body class=""' in html
+
+
+def test_render_digest_uses_daily_keywords_in_header():
+    class Profile:
+        persona = "technician"
+        language = "de"
+
+    article = _make_article()
+    article.title_de = "SPS TIA Portal Wartung OEE Sensor"
+    article.core_tech_points = "SPS Sensor OEE TIA Portal"
+    html = render_digest([article], "2026-02-19", Profile())
+    assert "Industrial AI und Simulation" not in html
+    assert "2026-02-19 |" in html
+    assert "SPS" in html
+    assert "Portal" in html

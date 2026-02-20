@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 
 # YouTube API Key
-YOUTUBE_API_KEY = os.getenv("AQ.Ab8RN6JZswz2KTOkAFyprt1E6Tz9tdNXEsR7rIyeGHSdLVYOLA", "")
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
 
 # Determine which provider to use (自动判断使用哪个模型提供商)
 # 优先级 Priority: USE_LOCAL_OLLAMA > NVIDIA NIM > Local Ollama (Fallback)
@@ -288,7 +288,7 @@ RECIPIENT_PROFILES = [
         focus_keywords=["Simulation", "AI", "Python", "Job", "Thesis"],
     ),
     RecipientProfile(
-        name="Technician (Maintenance)",
+        name="Technician",
         email=",".join([e for e in [EMAIL_TO, "max@max-lang.de"] if e]),
         language="de",  # German localization
         persona="technician",

@@ -8,6 +8,7 @@ import logging
 import smtplib
 import re
 import html
+from collections import Counter
 from datetime import date
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -18,6 +19,20 @@ from config import EMAIL_FROM, EMAIL_TO, SMTP_HOST, SMTP_PASS, SMTP_PORT, SMTP_U
 from src.models import AnalyzedArticle
 
 logger = logging.getLogger(__name__)
+
+STOPWORDS_DE = {
+    "und", "oder", "aber", "mit", "ohne", "fuer", "dass", "eine", "einer", "eines", "einem",
+    "der", "die", "das", "den", "dem", "des", "ein", "eine", "ist", "sind", "war", "waren",
+    "wird", "werden", "von", "zu", "im", "in", "auf", "am", "an", "bei", "als", "auch",
+    "nicht", "mehr", "noch", "ueber", "unter", "nach", "vor", "aus", "durch", "pro", "nur",
+    "heute", "artikel", "quelle", "details", "top", "relevanz", "hoch",
+}
+
+STOPWORDS_EN = {
+    "the", "and", "or", "with", "without", "for", "from", "this", "that", "these", "those",
+    "are", "is", "was", "were", "be", "been", "to", "in", "on", "at", "as", "of", "by",
+    "an", "a", "it", "its", "into", "about", "over", "under", "more", "less", "today",
+}
 
 
 I18N_LABELS = {
@@ -127,7 +142,7 @@ EMAIL_TEMPLATE = Template(
 <body class="{{ 'technician-mode' if technician_mode else '' }}">
   <div class="header">
     <h1>{{ labels.title }}</h1>
-    <div class="date">{{ today }} | {{ labels.date_suffix }}</div>
+    <div class="date">{{ today }} | {{ date_suffix }}</div>
   </div>
 
   <div class="overview">
@@ -276,6 +291,59 @@ def _emphasize_sentence_leads_html(text: str) -> str:
     return "<br>".join(rendered)
 
 
+def _extract_daily_keywords(
+    articles: list[AnalyzedArticle], lang: str, limit: int = 5
+) -> list[str]:
+    """Extract top keywords from daily articles for header subtitle."""
+    if not articles:
+        return []
+
+    stopwords = STOPWORDS_DE if lang == "de" else STOPWORDS_EN
+    counts: Counter[str] = Counter()
+    display_map: dict[str, str] = {}
+    pattern = re.compile(r"[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß\-]{2,}")
+
+    def _ingest(text: str, weight: int = 1) -> None:
+        for raw in pattern.findall(text or ""):
+            token = raw.strip("-")
+            if any(ch.isdigit() for ch in token):
+                continue
+            key = token.casefold()
+            if key in stopwords or len(key) < 3:
+                continue
+            counts[key] += weight
+            display_map.setdefault(key, token)
+
+    for article in articles:
+        if lang == "de":
+            _ingest(article.title_de, weight=3)
+            _ingest(article.core_tech_points, weight=2)
+            _ingest(article.german_context, weight=2)
+            _ingest(article.technician_analysis_de, weight=1)
+        elif lang == "en":
+            _ingest(article.title_en, weight=3)
+            _ingest(article.summary_en, weight=2)
+            _ingest(article.core_tech_points, weight=2)
+        else:
+            _ingest(article.title_zh, weight=3)
+            _ingest(article.title_en, weight=2)
+            _ingest(article.core_tech_points, weight=2)
+
+    ranked = [key for key, _ in counts.most_common(limit * 3)]
+    keywords: list[str] = []
+    for key in ranked:
+        token = display_map.get(key, key)
+        if token.isupper() and len(token) <= 8:
+            display = token
+        else:
+            display = token[:1].upper() + token[1:]
+        if display not in keywords:
+            keywords.append(display)
+        if len(keywords) >= limit:
+            break
+    return keywords
+
+
 def render_digest(
     articles: list[AnalyzedArticle], today: str | None = None, profile: object | None = None
 ) -> str:
@@ -289,6 +357,8 @@ def render_digest(
     lang = "en" if persona == "student" else base_lang
     labels = I18N_LABELS.get(lang, I18N_LABELS["zh"])
     no_truncate = True
+    daily_keywords = _extract_daily_keywords(articles, lang, limit=5)
+    date_suffix = ", ".join(daily_keywords) if len(daily_keywords) >= 3 else labels.get("date_suffix", "")
 
     rendered_articles = []
     for article in articles:
@@ -348,6 +418,7 @@ def render_digest(
 
     return EMAIL_TEMPLATE.render(
         today=today,
+        date_suffix=date_suffix,
         articles=rendered_articles,
         top_articles=top_articles,
         profile=profile,
