@@ -1,294 +1,248 @@
-# 🏭 Industrial AI 每日情报系统
+# Industrial AI Daily Intelligence
 
-> 每天早上自动收集工业 AI 领域最新资讯，用 AI 分析整理，再通过邮件发送给你。
-> 就像一个不睡觉的研究助理，帮你读完所有值得读的文章，再写成摘要发到你的邮箱。
+工业 AI 日报系统：自动抓取 -> 过滤 -> 分析 -> 按不同收件人模板发送。
 
----
+## 1. 系统目标
 
-## 🗺️ 这个系统是做什么的？
+这个项目解决三个问题：
+- 信息源分散：工业 AI 新闻、论文、视频跨多个网站。
+- 噪音高：大量“非 AI”或“纯理论”内容混入。
+- 读者差异大：学生和技术员需要不同语言与表达方式。
 
-```
-互联网上的文章    →    筛选相关文章    →    AI 分析    →    发送到你邮箱
-(每天自动抓取)       (去掉不相关的)     (写成摘要)     (按不同读者定制)
-```
-
-**具体来说，它每次运行时会做 4 件事：**
-
-| 步骤 | 做什么 | 就像是… |
-|------|--------|--------|
-| 1️⃣ 抓取 | 从 14 个来源抓取最新文章（11 个网站 + 2 个 RSS + 1 个动态页面） | 派人去翻报纸 |
-| 2️⃣ 过滤 | 用关键词 + AI 判断文章是否与工业 AI 相关 | 筛掉不相关广告 |
-| 3️⃣ 分析 | 用 AI 生成中/英/德三语摘要，并为不同读者写不同版本 | 秘书整理会议纪要 |
-| 4️⃣ 发送 | 把摘要发送到配置好的邮箱，或存入 Notion | 发送日报 |
-
-**当前邮件发送采用“先审后发”机制：**
-- 默认先发两封审核邮件到 `baixue243@gmail.com`（Student + Technician）
-- 审核通过后再执行正式群发（不会重复发给审核邮箱）
+系统每天运行一次，输出邮件（可选 Markdown / Notion）。
 
 ---
 
-## � 效果展示 (Showcase)
+## 2. 流程总览
 
-系统生成的交付物经过结构化整理，方便不同读者群体快速获取核心信息：
+1. 抓取（Scrape）
+2. 去重（Dedupe）
+3. 相关性过滤（Keyword + LLM）
+4. LLM 分析（多语言、多视角）
+5. 分画像投递（Email / Markdown / Notion）
 
-### 1. Notion 知识库自动化沉淀
-文章经过 AI 分析后，会自动转化为结构化数据写入 Notion，包含以下关键字段：
-- **标题**、**Score**（相关性评分1-5分）、**日期**
-- **类别 / 标签**（如 Industrial AI, MARL, Automotive 等）
-- **AI 摘要**（提炼出来的核心技术要点或机制说明）
-
-![Notion 展示](docs/notion_preview.png)
-
-### 2. 定制化排版的邮件订阅 (以 Technician 技师版为例)
-针对非研发人员的邮件订阅，采用了清晰的大小色块设计，减轻长文本阅读疲劳：
-- **KERNFOKUS（核心关注点）**：具有极高对比度的侧边栏引导，采用简短的无序列表（Bullet points），快速说明这项技术在工业 4.0 的价值，如 Predictive Maintenance（预测性维护）。
-- **KERNMECHANISMUS（核心机制）**：采用带颜色的编号列表（Numbered list），大量使用生动通俗的比喻（如“像机器的运动手环”、“像私人医生”）解释复杂的 AI 工作原理。
-
-![Email 展示](docs/email_preview.png)
+代码入口：`/Users/baixue/news/main.py`
 
 ---
 
-## �👥 会发给谁？发什么内容？
+## 3. 收件与发送机制
 
-系统支持**多个收件人画像**，每个画像收到不同风格的邮件：
+### 3.1 收件人画像
 
-### 🎓 学生版（Student）
-- 语言：英文
-- 风格：学术视角，关注仿真、AI、求职
-- 内容：核心技术要点 + 应用背景 + 通俗解释
+定义在：`/Users/baixue/news/config.py` -> `RECIPIENT_PROFILES`
 
-### 🔧 技师版（Technician）
-- 语言：德文
-- 风格：实操导向，阅读障碍友好（大字体、高对比色块、短句优先）
-- 内容：
-  - 🔵 **Kernfokus**（应用场景与落地重点，短句列表）
-  - 🟠 **Kernmechanismus**（用形象比喻解释“它怎么运作”）
-  - 展示方式：**两个栏目、两种颜色、上下排列**
+当前主要画像：
+- Student（英文）
+- Technician（德文）
+
+### 3.2 先审后发（关键）
+
+- 默认运行：先发审核邮件到 `EMAIL_REVIEWER`（默认 `baixue243@gmail.com`）
+- 审核通过后：使用 `--approve-send` 正式发给其他收件人
+- 正式发送时会自动排除 reviewer，避免重复收到
+
+相关逻辑：`/Users/baixue/news/main.py`
 
 ---
 
-## 🎯 检索领域（固定 6 大类）
+## 4. 数据来源规则（Source Rules）
 
-系统当前重点搜索以下 6 个 AI 工业应用领域：
+来源定义在：`/Users/baixue/news/config.py` -> `DATA_SOURCES`
 
-1. 工厂（Factory）
-2. 机器人（Robotics）
-3. 汽车（Automotive）
-4. 供应链（Supply Chain）
-5. 能源（Energy）
-6. 网络安全（Cybersecurity）
+### 4.1 来源类型
 
-其中“工厂”已细分为：
+- `web`：普通网页抓取
+- `rss`：RSS 订阅
+- `dynamic`：动态页面（可选跳过）
+- `youtube`：YouTube 搜索与频道结果
+
+### 4.2 来源优先级
+
+- 通过 `priority` 字段定义重要程度
+- 通过 `RSS_WEB_PRIORITY_SOURCES` 做 RSS/Web 白名单优先
+- 可用 `RSS_WEB_PRIORITY_ONLY=true` 强制只抓白名单
+
+### 4.3 当前策略重点
+
+- 保留 DE/US 工业核心来源
+- 增加 Automotive 与中国工业增量来源（媒体、机构、厂商新闻中心）
+- YouTube 查询词按工业主题扩展，不只单一关键词
+
+---
+
+## 5. 检索主题规则（6 大领域）
+
+定义在：`/Users/baixue/news/config.py` -> `TARGET_SEARCH_DOMAINS`
+
+固定聚焦 6 类：
+1. Factory
+2. Robotics
+3. Automotive
+4. Supply Chain
+5. Energy
+6. Cybersecurity
+
+Factory 进一步细分：
 - 设计与研发
 - 生产与工艺优化
 - 质量检测与缺陷分析
 - 设备运维与预测性维护
 
-并且默认启用 **AI 信号硬门槛**：纯行业新闻（如纯汽车新闻）不会进入分析，必须出现 AI/ML/机器视觉/大模型等信号。
+---
+
+## 6. 过滤规则（Filter Rules）
+
+核心文件：`/Users/baixue/news/src/filters/ollama_filter.py`
+
+过滤采用“两层 + 兜底”模型：
+
+### 6.1 第一层：关键词打分
+
+- `TECHNICIAN_KEYWORDS` 命中：`+3`
+- `HIGH_PRIORITY_KEYWORDS` 命中：`+2`
+- `MEDIUM_PRIORITY_KEYWORDS` 命中：`+1`
+- 命中 6 大目标领域：额外 `+1`
+
+### 6.2 工业语境门槛
+
+- `STRICT_INDUSTRY_CONTEXT_GATING=true` 时：
+  - 理论高风险词 + 无工业语境会被强降权
+
+### 6.3 AI 硬门槛（重要）
+
+- `REQUIRE_AI_SIGNAL=true` 时：
+  - 若文章没有 AI 信号词（AI/ML/机器视觉/大模型等）
+  - 直接不通过（score 置 0）
+- 目标：防止“纯汽车新闻/纯行业新闻”混入
+
+### 6.4 第二层：LLM 相关性校验
+
+- 对关键词通过的文章做 YES/NO 二次校验
+- 若 LLM 不可判定：仅高分项可按规则兜底
+
+### 6.5 最低补量策略
+
+- 目标：避免日报条目过少
+- 但补量仍受工业语境与 AI 信号约束，不放入明显噪音
 
 ---
 
-## 📁 项目结构（文件夹说明）
+## 7. 分析与语言规则（Analyzer Rules）
 
-```
-news/
-│
-├── main.py                  ← 主程序：点这里启动整个运行流程
-├── config.py                ← 配置中心：改这里设置收件人、关键词、数据源
-├── .env                     ← 密钥文件：存放邮箱密码、API Key（不要上传到 GitHub）
-│
-├── src/
-│   ├── scrapers/            ← 抓取器：负责从各网站拿文章
-│   │   ├── rss_scraper.py      RSS 订阅源抓取
-│   │   ├── web_scraper.py      普通网页抓取
-│   │   └── youtube_scraper.py  YouTube 视频抓取
-│   │
-│   ├── filters/             ← 过滤器：判断文章是否相关
-│   │
-│   ├── analyzers/           ← AI 分析器：调用大模型生成摘要
-│   │   └── llm_analyzer.py     核心分析逻辑（中/英/德三语）
-│   │
-│   └── delivery/            ← 发送器：把结果送到目的地
-│       ├── email_sender.py     邮件发送（含 HTML 模板渲染）
-│       ├── notion_service.py   推送到 Notion 数据库
-│       └── notion_sender.py
-│
-├── output/                  ← 输出目录：每次运行的结果文件
-│   ├── digest-YYYY-MM-DD.md        每日摘要（Markdown 格式）
-│   ├── sent_history.json           已发送记录（防止重复发送）
-│   └── newsletter_preview_technician.html      技师版邮件预览
-│
-└── tests/                   ← 自动测试：确保代码改动没有破坏功能
-```
+核心文件：`/Users/baixue/news/src/analyzers/llm_analyzer.py`
+
+### 7.1 输出字段
+
+LLM 输出结构化字段（中/英/德 + 技术要点 + 场景要点）。
+
+### 7.2 中文来源语言一致性（重要）
+
+- 若来源是中文，仍必须产出英文/德文字段
+- Student 模板使用英文字段
+- Technician 模板使用德文字段
+- 不允许把中文直接塞进英文/德文模板
 
 ---
 
-## ⚙️ 第一次使用：环境配置
+## 8. 邮件模板规则（Email Template Rules）
 
-> 只需要配置一次，之后每次运行都不需要重复。
+核心文件：`/Users/baixue/news/src/delivery/email_sender.py`
 
-### 第 1 步：安装依赖
+### 8.1 Student 模板
 
-在终端（Terminal）里运行：
+- 英文表达优先
+- 面向学习和理解
 
-```bash
-cd /Users/baixue/news
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-```
+### 8.2 Technician 模板
 
-### 第 2 步：创建密钥文件
-
-```bash
-cp .env.example .env
-```
-
-然后用文本编辑器打开 `.env`，填写以下内容：
-
-```
-# AI 模型选择（二选一）
-USE_LOCAL_OLLAMA=true          # 使用本地 Ollama 模型（免费）
-OLLAMA_MODEL=kimi-k2.5:cloud
-
-# 或者使用云端 NVIDIA 模型（需要 API Key）
-NVIDIA_API_KEY=你的Key
-
-# 邮件发送配置（使用 Gmail 举例）
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=你的邮箱@gmail.com
-SMTP_PASS=你的应用专用密码
-EMAIL_TO=收件人@gmail.com
-EMAIL_REVIEWER=baixue243@gmail.com  # 审核邮箱（默认值）
-
-# 过滤开关（建议保持默认）
-REQUIRE_AI_SIGNAL=true               # 必须是 AI 相关内容才入选
-
-# Notion（可选，不用可以留空）
-NOTION_API_KEY=
-NOTION_DATABASE_ID=
-
-# YouTube（可选，用于抓取 YouTube 视频）
-YOUTUBE_API_KEY=
-```
-
-> 💡 Gmail 需要开启"两步验证"并生成"应用专用密码"，不能直接用账号密码。
+- 德文输出
+- 两个核心区块：
+  - `Kernfokus`（应用场景重点）
+  - `Kernmechanismus`（机制解释）
+- 视觉：蓝色 + 橙色，上下布局
+- `Kernfokus` 使用完整句子（不再词级截断）
+- 每条新闻都显示来源（Source）
 
 ---
 
-## ▶️ 日常运行
+## 9. 运行方式
 
-配置完成后，每次运行只需要一行命令：
+### 9.1 常用命令
 
 ```bash
-# 默认：先发审核邮件到 reviewer（student+technician 两封）
+# 默认：审核发送（发 reviewer）
 ./.venv/bin/python main.py --output email
 
-# 审核通过后：正式发送给其他收件人
+# 审核通过后：正式发送
 ./.venv/bin/python main.py --output email --approve-send
 
-# 预览效果，不真正发送（测试用）
+# 干跑（不发邮件）
 ./.venv/bin/python main.py --dry-run --output email
 
-# 发邮件 + 保存 Markdown + 推送 Notion
+# 邮件 + Markdown + Notion
 ./.venv/bin/python main.py --output both
+```
 
-# 跳过慢速网站（运行更快）
-./.venv/bin/python main.py --output email --skip-dynamic
+### 9.2 常用参数
+
+- `--approve-send`：审核通过后正式群发
+- `--skip-dynamic`：跳过动态抓取
+- `--skip-llm-filter`：跳过 LLM 二次过滤
+- `--mock`：分析使用 mock 数据
+- `--strict`：任一关键步骤失败即退出
+
+---
+
+## 10. 关键配置项速查
+
+配置文件：`/Users/baixue/news/config.py`
+
+- 来源与优先：`DATA_SOURCES`, `RSS_WEB_PRIORITY_SOURCES`, `RSS_WEB_PRIORITY_ONLY`
+- 领域聚焦：`TARGET_SEARCH_DOMAINS`
+- 过滤门槛：`STRICT_INDUSTRY_CONTEXT_GATING`, `FALLBACK_REQUIRE_INDUSTRY_CONTEXT`, `REQUIRE_AI_SIGNAL`
+- 关键词体系：`TECHNICIAN_KEYWORDS`, `HIGH_PRIORITY_KEYWORDS`, `MEDIUM_PRIORITY_KEYWORDS`, `AI_RELEVANCE_KEYWORDS`
+- 收件画像：`RECIPIENT_PROFILES`
+
+`.env` 中建议设置：
+
+```env
+EMAIL_REVIEWER=baixue243@gmail.com
+REQUIRE_AI_SIGNAL=true
 ```
 
 ---
 
-## 🔧 运行参数说明
+## 11. 故障排查
 
-运行 `main.py --help` 可以查看所有参数，常用参数如下：
+### 11.1 为什么没有某类新闻（如中国工业/汽车 AI）
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--output {email,markdown,both,notion}` | 输出格式。`email` 发送邮件，`markdown` 保存文件，`both`包含全部，`notion` 推送Notion | `email` |
-| `--dry-run` | 仅在控制台打印生成的内容，不实际发送邮件或写入外部系统 | false |
-| `--approve-send` | 审核模式开关。加上此参数代表审核通过，执行正式发送（不再发给 Reviewer） | false |
-| `--skip-dynamic` | 跳过需要浏览器渲染的动态网页抓取（Playwright），速度更快 | false |
-| `--skip-llm-filter` | 跳过 LLM 的相关性校验，仅使用关键词过滤（省钱模式） | false |
-| `--strict` | 严格模式，遇到任何阶段的错误都会中止程序并报错 | false |
-| `--max-articles N` | 每个数据源最多抓取的文章数量 | 20 |
-| `--mock` | 使用本地 Mock 数据代替真实 LLM 分析（测试用） | false |
+优先检查：
+- 对应来源是否在 `DATA_SOURCES`
+- 是否被白名单策略排除（`RSS_WEB_PRIORITY_ONLY`）
+- 是否未命中 AI 信号门槛（`REQUIRE_AI_SIGNAL=true`）
 
----
+### 11.2 为什么技术员模板句子被截断
 
-## 📰 数据来源
+已改为完整句策略；若仍异常，检查是否为上游 LLM 输出本身断句。
 
-系统抓取以下类型的来源：
+### 11.3 为什么 GitHub 首页 README 没更新
 
-| 来源类型 | 例子 |
-|---------|------|
-| 德国工业研究机构 | Fraunhofer IPA、DFKI、TUM |
-| 汽车媒体/车厂技术源 | Volkswagen、BMW、Mercedes、Automotive News Europe、SAE |
-| 中国工业与AI媒体/机构 | 36Kr、机器之心、高工机器人、甲子光年、MIIT、信通院、BYD |
-| 行业媒体 | VDI Nachrichten、Handelsblatt |
-| 大厂官方博客 | Siemens、ABB、Bosch、Google Cloud |
-| 学术论文预印本 | arXiv（cs.AI、cs.SY） |
-| 供应链平台 | SAP、AWS、Oracle |
-| YouTube 视频 | Industrial AI 及工业主题频道 |
+通常是分支未合并到 `main`，或页面缓存未刷新。
 
 ---
 
-## 🚨 常见问题排查
+## 12. 项目结构
 
-### 邮件发不出去
-1. 检查 `.env` 里的 `SMTP_USER`、`SMTP_PASS`、`EMAIL_TO` 是否填写正确
-2. Gmail 用户确认使用的是**应用专用密码**，不是账号密码
-3. 运行时加 `--dry-run` 先确认内容是否正常
-
-### 文章数量太少（0 篇或 1-2 篇）
-1. 加 `--skip-llm-filter` 绕过 AI 二次过滤，看关键词过滤是否正常
-2. 检查 `REQUIRE_AI_SIGNAL=true` 是否过严；若做探索可临时关闭
-3. 检查网络连接，部分德国网站在中国大陆可能需要代理
-
-### 中文来源在英文/德文模板里显示不对
-1. 系统已要求中文来源必须翻译到模板语言（Student=EN, Technician=DE）
-2. 若仍出现混语，先重跑一次（模型可能返回不完整字段）
-3. 如需强制更严格，可在分析提示词中提升翻译约束
-
-### AI 分析质量差或运行很慢
-1. 检查 Ollama 是否在运行：`ollama list`
-2. 考虑切换到 NVIDIA 云端模型，在 `.env` 里设置 `NVIDIA_API_KEY`
-
-### 想看邮件长什么样但不想发送
-```bash
-./.venv/bin/python main.py --dry-run --output email
+```text
+/Users/baixue/news
+├── main.py
+├── config.py
+├── src/
+│   ├── scrapers/
+│   ├── filters/
+│   ├── analyzers/
+│   └── delivery/
+├── tests/
+└── output/
 ```
-也可以直接在浏览器里打开 `output/newsletter_preview_technician.html`
 
----
-审核发送（先给你）
-./.venv/bin/python /Users/baixue/news/main.py --output email
-审核通过后正式发送（给其他收件人）
-./.venv/bin/python /Users/baixue/news/main.py --output email --approve-send
-
-
-## 📊 运行日志
-
-每次运行后，会在 `output/` 目录生成：
-
-- `run-summary-YYYY-MM-DD.json` — 本次运行统计（抓了多少篇、过了多少篇、发给了谁）
-- `digest-YYYY-MM-DD.md` — 当日摘要的 Markdown 版本
-- `sent_history.json` — 发送历史记录（防止同一篇文章被重复发送）
-
----
-
-## 🛠️ 技术栈（给有开发经验的读者）
-
-| 组件 | 技术 |
-|------|------|
-| 语言 | Python 3.11+ |
-| AI 模型 | Ollama（本地）/ NVIDIA NIM Kimi-K2.5（云端） |
-| 邮件模板 | Jinja2 HTML |
-| 数据库 | Notion API |
-| 数据抓取 | requests + BeautifulSoup + feedparser + YouTube Data API v3 |
-| 测试 | pytest |
-
----
-
-*最后更新：2026-02-20*
