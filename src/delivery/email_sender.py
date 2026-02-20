@@ -20,6 +20,11 @@ from src.models import AnalyzedArticle
 
 logger = logging.getLogger(__name__)
 
+# --- Pre-compiled regexes (module-level for performance) ---
+_RE_WHITESPACE = re.compile(r"\s+")
+_RE_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+_RE_KEYWORD_TOKEN = re.compile(r"[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß\-]{2,}")
+
 STOPWORDS_DE = {
     "und", "oder", "aber", "mit", "ohne", "fuer", "dass", "eine", "einer", "eines", "einem",
     "der", "die", "das", "den", "dem", "des", "ein", "eine", "ist", "sind", "war", "waren",
@@ -38,6 +43,7 @@ STOPWORDS_EN = {
 I18N_LABELS = {
     "en": {
         "title": "Industrial AI Daily Digest",
+        "tagline": "Signal first: key updates for industrial decision-making and implementation.",
         "stats": "Today we selected <strong>{{ count }}</strong> relevant updates",
         "simple_explain_label": "Plain-English Takeaway",
         "tech_points_label": "Core Technology",
@@ -53,6 +59,7 @@ I18N_LABELS = {
     },
     "zh": {
         "title": "工业 AI 每日摘要",
+        "tagline": "聚焦可执行信号：面向工业决策与落地的关键更新。",
         "stats": "今日共筛选出 <strong>{{ count }}</strong> 条相关情报",
         "simple_explain_label": "通俗解读",
         "tech_points_label": "核心技术",
@@ -68,8 +75,9 @@ I18N_LABELS = {
     },
     "de": {
         "title": "Industrial AI Tageszusammenfassung",
+        "tagline": "Klare Signale: Relevante Updates fuer industrielle Entscheidungen und Umsetzung.",
         "stats": "Heute wurden <strong>{{ count }}</strong> relevante Berichte ausgewählt",
-        "simple_explain_label": "Wo liegt das Problem?",
+        "simple_explain_label": "Einstieg: Was bedeutet das?",
         "tech_points_label": "Was passiert technisch?",
         "application_label": "Welcher Nutzen entsteht?",
         "source_label": "Quelle",
@@ -98,11 +106,9 @@ EMAIL_TEMPLATE = Template(
             padding: 22px; border-radius: 12px; margin-bottom: 14px; }
   .header h1 { margin: 0; font-size: 22px; letter-spacing: 0.2px; }
   .header .date { opacity: 0.9; font-size: 13px; margin-top: 6px; }
-  .overview { background: #fff; border: 1px solid #dbe3ee; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
-  .overview h2 { margin: 0 0 10px; font-size: 16px; color: #0b3c7f; }
-  .overview p { margin: 0 0 10px; font-size: 14px; line-height: 1.55; }
-  .overview ul { margin: 6px 0 0 18px; padding: 0; }
-  .overview li { margin: 5px 0; font-size: 13px; line-height: 1.45; }
+  .header .tagline { margin-top: 10px; font-size: 14px; opacity: 0.95; line-height: 1.5; }
+  .section { margin: 0 0 16px; }
+  .section-title { margin: 0 0 10px; font-size: 17px; color: #0b3c7f; font-weight: 700; }
   .article { background: #fff; border: 1px solid #dbe3ee; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
   .category { display: inline-block; background: #eaf2ff; color: #144a9e;
               padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
@@ -143,20 +149,16 @@ EMAIL_TEMPLATE = Template(
   <div class="header">
     <h1>{{ labels.title }}</h1>
     <div class="date">{{ today }} | {{ date_suffix }}</div>
+    <div class="tagline">{{ labels.tagline }}</div>
   </div>
 
-  <div class="overview">
-    <h2>{{ labels.overview_title }}</h2>
-    <p>{{ labels.stats | replace('{{ count }}', articles|length|string) }}</p>
-    <div class="label">{{ labels.top_title }}</div>
-    <ul>
-      {% for item in top_articles %}
-      <li>{{ item }}</li>
-      {% endfor %}
-    </ul>
-  </div>
-
-  {% for article in articles %}
+  {% for group in grouped_articles %}
+  <div class="section">
+    <div class="section-title">{{ group["name"] }}</div>
+    {% if not group["items"] %}
+    <div class="article">{{ labels.no_articles }}</div>
+    {% endif %}
+    {% for article in group["items"] %}
   <div class="article">
     <span class="category">{{ article.category_tag }}</span>
 
@@ -184,6 +186,8 @@ EMAIL_TEMPLATE = Template(
       {{ labels.source_label }}: {{ article.source_name }} |
       <a href="{{ article.source_url }}">{{ labels.link_label }}</a>
     </div>
+  </div>
+    {% endfor %}
   </div>
   {% endfor %}
 
@@ -277,13 +281,17 @@ def _emphasize_sentence_leads_html(text: str) -> str:
     value = (text or "").strip()
     if not value:
         return ""
-    value = re.sub(r"\s+", " ", value)
-    parts = [seg.strip(" -•\t") for seg in re.split(r"(?<=[.!?])\s+|\n+", value) if seg.strip(" -•\t")]
+    value = _RE_WHITESPACE.sub(" ", value)
+    parts = [seg.strip(" -•\t") for seg in _RE_SENTENCE_SPLIT.split(value) if seg.strip(" -•\t")]
     rendered: list[str] = []
     for part in parts:
         tokens = part.split(maxsplit=1)
         lead = html.escape(tokens[0].strip(" ,;:"))
         rest = html.escape(tokens[1]) if len(tokens) > 1 else ""
+        if not lead:
+            # Part was purely punctuation — emit as-is without bolding
+            rendered.append(html.escape(part))
+            continue
         if rest:
             rendered.append(f"<strong>{lead}</strong> {rest}")
         else:
@@ -301,7 +309,7 @@ def _extract_daily_keywords(
     stopwords = STOPWORDS_DE if lang == "de" else STOPWORDS_EN
     counts: Counter[str] = Counter()
     display_map: dict[str, str] = {}
-    pattern = re.compile(r"[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß\-]{2,}")
+    pattern = _RE_KEYWORD_TOKEN
 
     def _ingest(text: str, weight: int = 1) -> None:
         for raw in pattern.findall(text or ""):
@@ -344,6 +352,73 @@ def _extract_daily_keywords(
     return keywords
 
 
+def _normalize_theme(category_tag: str) -> str:
+    value = (category_tag or "").strip().casefold()
+    if (
+        "policy" in value
+        or "regulat" in value
+        or "standard" in value
+        or "compliance" in value
+    ):
+        return "Standards & Regulation"
+    if "cyber" in value or "security" in value or "ot " in value or "ics" in value:
+        return "OT Cybersecurity"
+    if (
+        "semiconductor" in value
+        or "chip" in value
+        or "sensor" in value
+        or "edge" in value
+        or "hardware" in value
+    ):
+        return "Semiconductors & Hardware"
+    if (
+        "industry 4.0" in value
+        or "digital twin" in value
+        or "simulation" in value
+        or "automation" in value
+        or "robot" in value
+        or "manufacturing" in value
+    ):
+        return "Industry 4.0 & Automation"
+    if (
+        "supply chain" in value
+        or "logistics" in value
+        or "procurement" in value
+        or "warehouse" in value
+    ):
+        return "Supply Chain & Logistics"
+    if (
+        "energy" in value
+        or "sustainability" in value
+        or "carbon" in value
+        or "esg" in value
+    ):
+        return "Energy & Sustainability"
+    if "ai" in value or "ml" in value or "llm" in value or "research" in value:
+        return "AI"
+    return "Industry 4.0 & Automation"
+
+
+def _group_articles_by_theme(rendered_articles: list[dict[str, str]], max_per_group: int = 5) -> list[dict[str, object]]:
+    order = [
+        "AI",
+        "Industry 4.0 & Automation",
+        "OT Cybersecurity",
+        "Semiconductors & Hardware",
+        "Energy & Sustainability",
+        "Supply Chain & Logistics",
+        "Standards & Regulation",
+    ]
+    bucket: dict[str, list[dict[str, str]]] = {name: [] for name in order}
+    for item in rendered_articles:
+        theme = _normalize_theme(item.get("category_tag", ""))
+        if theme not in bucket:
+            theme = "Industry 4.0 & Automation"
+        if len(bucket[theme]) < max_per_group:
+            bucket[theme].append(item)
+    return [{"name": theme, "items": bucket[theme]} for theme in order if bucket[theme]]
+
+
 def render_digest(
     articles: list[AnalyzedArticle], today: str | None = None, profile: object | None = None
 ) -> str:
@@ -356,13 +431,12 @@ def render_digest(
     base_lang = getattr(profile, "language", "zh") if profile else "zh"
     lang = "en" if persona == "student" else base_lang
     labels = I18N_LABELS.get(lang, I18N_LABELS["zh"])
-    no_truncate = True
+    # Truncation is disabled; fields are rendered in full.
     daily_keywords = _extract_daily_keywords(articles, lang, limit=5)
     date_suffix = ", ".join(daily_keywords) if len(daily_keywords) >= 3 else labels.get("date_suffix", "")
 
     rendered_articles = []
     for article in articles:
-        simple_explanation = _pick_explanation(article, persona)
         display_title_raw = (_pick_title(article, lang) or "").strip()
         title_en_raw = (article.title_en or "").strip()
         subtitle = ""
@@ -375,9 +449,21 @@ def render_digest(
         context_text = (article.german_context or "").strip() or "N/A"
         if persona == "technician":
             context_text = _localize_context_for_technician(context_text)
-        core_text = (article.core_tech_points or "").strip() or "N/A"
-        if persona == "technician" and core_text == "N/A":
-            core_text = "Keine technischen Kerndetails verfügbar."
+        # For technician mode: blue block uses technician_analysis_de;
+        # for other personas: use core_tech_points as before.
+        if persona == "technician":
+            core_text = (
+                article.technician_analysis_de
+                or article.core_tech_points
+                or "Keine technischen Kerndetails verfügbar."
+            ).strip()
+        else:
+            core_text = (article.core_tech_points or "").strip() or "N/A"
+        # Orange issue-block always uses article.simple_explanation (beginner-friendly text).
+        simple_explanation = (article.simple_explanation or "").strip() or "N/A"
+        if persona == "student":
+            # Student digest should stay in English regardless of profile language.
+            simple_explanation = (article.summary_en or article.simple_explanation or "N/A").strip()
         if technician_mode:
             core_text = _simplify_for_beginner_de(core_text)
             context_text = _simplify_for_beginner_de(context_text)
@@ -392,35 +478,27 @@ def render_digest(
                 "display_title": _clip(display_title_raw, 200),
                 "title_en": subtitle,
                 "subtitle": subtitle,
-                "core_tech_compact": (
-                    core_text
-                    if no_truncate
-                    else _clip(core_text, 500)
-                ),
-                "context_compact": (
-                    context_text
-                    if no_truncate
-                    else _clip(context_text, 600)
-                ),
-                "simple_explanation": (
-                    (simple_explanation or "N/A").strip()
-                    if no_truncate
-                    else _clip(simple_explanation or "N/A", 1000)
-                ),
+                "core_tech_compact": core_text,
+                "context_compact": context_text,
+                "simple_explanation": (simple_explanation or "N/A").strip(),
                 "source_name": article.source_name,
                 "source_url": article.source_url,
             }
         )
 
-    top_articles = [f"{i + 1}. {item['display_title']}" for i, item in enumerate(rendered_articles[:3])]
-    if not top_articles:
-        top_articles = [labels.get("no_articles", "No articles today.")]
+    grouped_articles = _group_articles_by_theme(rendered_articles, max_per_group=5)
+    if not grouped_articles:
+        grouped_articles = [{"name": labels.get("overview_title", "Overview"), "items": []}]
+
+    # Pre-compute the stats string to avoid the Jinja2 "replace {{ count }}" anti-pattern.
+    stats_text = labels["stats"].replace("{{ count }}", str(len(articles)))
 
     return EMAIL_TEMPLATE.render(
         today=today,
         date_suffix=date_suffix,
         articles=rendered_articles,
-        top_articles=top_articles,
+        grouped_articles=grouped_articles,
+        stats_text=stats_text,
         profile=profile,
         labels=labels,
         technician_mode=technician_mode,
@@ -436,10 +514,10 @@ def render_digest_text(
     persona = str(getattr(profile, "persona", "")).strip().lower() if profile else ""
     base_lang = getattr(profile, "language", "zh") if profile else "zh"
     lang = "en" if persona == "student" else base_lang
+    labels = I18N_LABELS.get(lang, I18N_LABELS["zh"])
     if persona == "technician":
         header = "[Industrial AI Tageszusammenfassung]"
         count_label = "Artikel"
-        top_label = "Top 3"
         details_label = "Details"
         tech_label = "Kerntechnologie"
         app_label = "Anwendung"
@@ -448,7 +526,6 @@ def render_digest_text(
     else:
         header = "[Industrial AI Digest]"
         count_label = "Articles"
-        top_label = "Top 3"
         details_label = "Details"
         tech_label = "Tech"
         app_label = "Application"
@@ -458,21 +535,27 @@ def render_digest_text(
     lines = [
         f"{header} {today}",
         f"{count_label}: {len(articles)}",
-        f"{top_label}:",
+        f"{labels.get('tagline', '')}",
+        "",
     ]
 
-    for idx, article in enumerate(articles[:3], start=1):
+    grouped_source: list[dict[str, str]] = []
+    for article in articles:
         if persona == "student":
-            top_title = article.title_en or article.title_zh or "N/A"
+            title = article.title_en or article.title_zh or "N/A"
         elif persona == "technician":
-            top_title = article.title_de or "Deutscher Titel nicht verfügbar"
-        elif lang == "de":
-            top_title = article.title_de or article.title_zh or article.title_en or "N/A"
+            title = article.title_de or "Deutscher Titel nicht verfügbar"
         else:
-            top_title = article.title_zh or article.title_en or article.title_de or "N/A"
-        lines.append(f"{idx}. {_clip(top_title, 200)}")
+            title = article.title_zh or article.title_en or "N/A"
+        grouped_source.append({"category_tag": article.category_tag, "title": title})
+    grouped = _group_articles_by_theme(grouped_source, max_per_group=5)
 
-    lines.append(f"\n{details_label}:\n")
+    lines.append(f"{details_label}:\n")
+    for group in grouped:
+        lines.append(f"[{group['name']}]")
+        for item in group["items"]:
+            lines.append(f"- {_clip(item.get('title', 'N/A'), 200)}")
+        lines.append("")
 
     for article in articles:
         if persona == "student":
@@ -506,19 +589,16 @@ def send_email(articles: list[AnalyzedArticle], today: str | None = None, profil
     html_content = render_digest(articles, today, profile)
 
     msg = MIMEMultipart("alternative")
-    lang = getattr(profile, "language", "zh") if profile else "zh"
-    if profile and hasattr(profile, "persona"):
-        persona = str(getattr(profile, "persona", "")).strip().lower()
-        if persona == "technician":
-            subject_prefix = "[Techniker] "
-            lang = "de"
-        elif persona == "student":
-            subject_prefix = "[Student] "
-            lang = "en"
-        else:
-            subject_prefix = ""
+    # Resolve language the same way render_digest does — honour profile.language,
+    # with student always defaulting to English.
+    persona = str(getattr(profile, "persona", "")).strip().lower() if profile else ""
+    base_lang = getattr(profile, "language", "zh") if profile else "zh"
+    lang = "en" if persona == "student" else base_lang
+    if persona == "technician":
+        subject_prefix = "[Techniker] "
+    elif persona == "student":
+        subject_prefix = "[Student] "
     else:
-        persona = ""
         subject_prefix = ""
     labels = I18N_LABELS.get(lang, I18N_LABELS["zh"])
     msg["Subject"] = f"{subject_prefix}📅 {today} {labels['subject_suffix']} ({len(articles)})"
@@ -538,7 +618,8 @@ def send_email(articles: list[AnalyzedArticle], today: str | None = None, profil
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
             server.starttls()
             server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(msg["From"], recipient.split(","), msg.as_string())
+            recipients = [r.strip() for r in recipient.split(",") if r.strip()]
+            server.sendmail(msg["From"], recipients, msg.as_string())
 
         logger.info("[EMAIL] ✅ Digest sent successfully")
         return True
