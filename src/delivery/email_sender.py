@@ -270,7 +270,7 @@ def _clip(text: str, limit: int) -> str:
 
 def _pick_title(article: AnalyzedArticle, lang: str) -> str:
     if lang == "en":
-        return article.title_en or article.title_zh or article.title_de
+        return article.title_en or "English title unavailable"
     if lang == "de":
         return article.title_de or "Deutscher Titel nicht verfügbar"
     return article.title_zh or article.title_en or article.title_de
@@ -299,7 +299,7 @@ def _pick_title_for_persona(article: AnalyzedArticle, persona: str) -> str:
         Title string in the most appropriate language for the persona.
     """
     if persona == "student":
-        return article.title_en or article.title_zh or "N/A"
+        return article.title_en or "English title unavailable"
     if persona == "technician":
         return article.title_de or "Deutscher Titel nicht verfügbar"
     return article.title_zh or article.title_en or "N/A"
@@ -315,7 +315,7 @@ def _pick_explanation(article: AnalyzedArticle, persona: str) -> str:
         ).strip()
     if persona == "student":
         # Student digest should stay in English regardless of profile language.
-        return (article.summary_en or article.simple_explanation or "N/A").strip()
+        return (article.summary_en or "English summary unavailable.").strip()
     return (article.simple_explanation or article.summary_en or "N/A").strip()
 
 
@@ -734,7 +734,7 @@ def render_digest(
         simple_explanation = (article.simple_explanation or "").strip() or "N/A"
         if persona == "student":
             # Student digest should stay in English regardless of profile language.
-            simple_explanation = (article.summary_en or article.simple_explanation or "N/A").strip()
+            simple_explanation = (article.summary_en or "English summary unavailable.").strip()
         if technician_mode:
             simple_explanation = _pick_technician_focus_note(article)
             core_text = _simplify_for_beginner_de(core_text)
@@ -890,7 +890,11 @@ def render_digest_text(
 
 
 def send_email(
-    articles: list[AnalyzedArticle], today: str | None = None, profile: object | None = None
+    articles: list[AnalyzedArticle],
+    today: str | None = None,
+    profile: object | None = None,
+    recipient_override: str | None = None,
+    subject_prefix_override: str | None = None,
 ) -> bool:
     """Send the daily digest email via SMTP.
 
@@ -899,11 +903,18 @@ def send_email(
         today: Date string in ``YYYY-MM-DD`` format. Defaults to today.
         profile: ``RecipientProfile`` instance containing email address,
             language preference, and persona.
+        recipient_override: Optional explicit recipient list (comma-separated).
+        subject_prefix_override: Optional extra subject prefix, e.g. "[Review] ".
 
     Returns:
         ``True`` if the email was delivered successfully, ``False`` otherwise.
     """
-    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, EMAIL_TO]):
+    default_recipient = (
+        recipient_override
+        if recipient_override
+        else (profile.email if profile and hasattr(profile, "email") else EMAIL_TO)
+    )
+    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, default_recipient]):
         logger.warning("[EMAIL] SMTP not configured, skipping email delivery")
         return False
 
@@ -925,10 +936,12 @@ def send_email(
     else:
         subject_prefix = ""
     labels = I18N_LABELS.get(lang, I18N_LABELS["zh"])
+    if subject_prefix_override:
+        subject_prefix = f"{subject_prefix_override}{subject_prefix}"
     msg["Subject"] = f"{subject_prefix}📅 {today} {labels['subject_suffix']} ({len(articles)})"
     msg["From"] = EMAIL_FROM or SMTP_USER
 
-    recipient = profile.email if profile and hasattr(profile, "email") else EMAIL_TO
+    recipient = default_recipient
     msg["To"] = recipient
 
     text_content = render_digest_text(articles, today, profile)

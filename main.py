@@ -84,6 +84,7 @@ class PipelineResult:
 SENT_HISTORY_FILE = "sent_history.json"
 PROFILE_ARTICLE_TARGET = max(1, int(os.getenv("PROFILE_ARTICLE_TARGET", "5")))
 PROFILE_REPEAT_COOLDOWN_DAYS = max(0, int(os.getenv("PROFILE_REPEAT_COOLDOWN_DAYS", "7")))
+EMAIL_REVIEWER = os.getenv("EMAIL_REVIEWER", "baixue243@gmail.com").strip()
 ANALYSIS_FALLBACK_MARKERS = (
     "analysis fallback",
     "kein auswertbares modell-ergebnis verfügbar",
@@ -165,6 +166,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--mock",
         action="store_true",
         help="使用模拟数据进行 LLM 分析 (Use mock data for LLM analysis)",
+    )
+    parser.add_argument(
+        "--approve-send",
+        action="store_true",
+        help=(
+            "邮件审核通过后执行正式发送。默认先发送审核邮件到 EMAIL_REVIEWER "
+            f"(default: {EMAIL_REVIEWER})"
+        ),
     )
     return parser.parse_args(argv)
 
@@ -385,6 +394,22 @@ def _record_sent(
     persona_history = history.setdefault(persona, {})
     for item in articles:
         persona_history[_article_key(item)] = today_iso
+
+
+def _split_recipients(raw: str) -> list[str]:
+    return [item.strip() for item in (raw or "").split(",") if item.strip()]
+
+
+def _unique_recipients(items: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        key = item.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
 
 
 def run_pipeline(args: argparse.Namespace) -> PipelineResult:
@@ -613,6 +638,13 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
                 history_path = os.path.join(args.output_dir, SENT_HISTORY_FILE)
                 sent_history = _load_sent_history(history_path)
                 used_today_keys: set[str] = set()
+                review_mode = not args.approve_send
+                reviewer = EMAIL_REVIEWER
+                logger.info(
+                    "[DELIVERY] Email mode: %s (reviewer=%s)",
+                    "review-only" if review_mode else "approved-send",
+                    reviewer,
+                )
 
                 # Multi-channel delivery based on profiles
                 for profile in RECIPIENT_PROFILES:
@@ -647,9 +679,34 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
                         PROFILE_ARTICLE_TARGET,
                         PROFILE_REPEAT_COOLDOWN_DAYS,
                     )
-                    success = send_email(profile_articles, today, profile=profile)
+                    if review_mode:
+                        recipient_override = reviewer
+                        subject_prefix_override = "[Review] "
+                    else:
+                        original_recipients = _split_recipients(getattr(profile, "email", ""))
+                        filtered_recipients = [
+                            item
+                            for item in original_recipients
+                            if item.casefold() != reviewer.casefold()
+                        ]
+                        recipient_override = ",".join(_unique_recipients(filtered_recipients))
+                        subject_prefix_override = ""
+                        if not recipient_override:
+                            logger.info(
+                                "[DELIVERY] Skip profile '%s': no non-review recipients in approved mode",
+                                profile.name,
+                            )
+                            continue
 
-                    if success:
+                    success = send_email(
+                        profile_articles,
+                        today,
+                        profile=profile,
+                        recipient_override=recipient_override,
+                        subject_prefix_override=subject_prefix_override,
+                    )
+
+                    if success and not review_mode:
                         _record_sent(sent_history, profile.persona, profile_articles, today)
                     if args.strict and not success:
                          logger.error(f"[DELIVERY] Failed to send email to '{profile.name}'")
@@ -657,7 +714,8 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
                          # User requested "fail run on any critical stage error"
                          raise RuntimeError(f"Email delivery failed for profile {profile.name}")
 
-                _save_sent_history(history_path, sent_history)
+                if not review_mode:
+                    _save_sent_history(history_path, sent_history)
                 result.email_sent = True # Mark as sent if we got here (individual failures raised if strict)
 
             if args.output in ("markdown", "both"):

@@ -548,6 +548,9 @@ Constraint (核心限制):
 4. 简洁要求：
    - simple_explanation 只保留 1-2 句中文摘要。
    - 避免比喻、背景故事、长段落。
+5. 语言一致性：
+   - 若原文为中文来源，必须提供高质量英文与德文翻译字段（title_en/title_de, summary_en/summary_de）。
+   - student 邮件依赖英文字段，technician 邮件依赖德文字段，禁止留空或混用中文。
 
 这是背景设定。现在，作为分析师，请分析给定文章，并输出**纯 JSON**（无其他文字）。
 
@@ -579,7 +582,8 @@ SIMPLE_JSON_PROMPT = (
     "No explanation, no markdown, ONLY JSON. "
     "simple_explanation must be concise Chinese summary in 1-2 short sentences. "
     "technician_analysis_de must be in German with 2-4 short bullet points, max 16 words each, "
-    "focused on technician actions and industrial impact only."
+    "focused on technician actions and industrial impact only. "
+    "If source text is Chinese, provide translated English and German title/summary fields."
 )
 
 
