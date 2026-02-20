@@ -147,6 +147,9 @@ REQUIRE_AI_SIGNAL=true               # 必须是 AI 相关内容才入选
 # Notion（可选，不用可以留空）
 NOTION_API_KEY=
 NOTION_DATABASE_ID=
+
+# YouTube（可选，用于抓取 YouTube 视频）
+YOUTUBE_API_KEY=
 ```
 
 > 💡 Gmail 需要开启"两步验证"并生成"应用专用密码"，不能直接用账号密码。
@@ -177,6 +180,20 @@ NOTION_DATABASE_ID=
 ---
 
 ## 🔧 运行参数说明
+
+运行 `main.py --help` 可以查看所有参数，常用参数如下：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--output {email,markdown,both,notion}` | 输出格式。`email` 发送邮件，`markdown` 保存文件，`both`包含全部，`notion` 推送Notion | `email` |
+| `--dry-run` | 仅在控制台打印生成的内容，不实际发送邮件或写入外部系统 | false |
+| `--approve-send` | 审核模式开关。加上此参数代表审核通过，执行正式发送（不再发给 Reviewer） | false |
+| `--skip-dynamic` | 跳过需要浏览器渲染的动态网页抓取（Playwright），速度更快 | false |
+| `--skip-llm-filter` | 跳过 LLM 的相关性校验，仅使用关键词过滤（省钱模式） | false |
+| `--strict` | 严格模式，遇到任何阶段的错误都会中止程序并报错 | false |
+| `--max-articles N` | 每个数据源最多抓取的文章数量 | 20 |
+| `--mock` | 使用本地 Mock 数据代替真实 LLM 分析（测试用） | false |
+
 ---
 
 ## 📰 数据来源
