@@ -103,3 +103,73 @@
 {"timestamp": "2026-02-14T10:34:32", "level": "INFO", "logger": "__main__", "message": "[SUMMARY] Wrote run summary: output/run-summary-2026-02-14.json"}
 {"timestamp": "2026-02-14T10:34:32", "level": "INFO", "logger": "__main__", "message": "[SUMMARY] Wrote error report: output/error-2026-02-14.json"}
 {"timestamp": "2026-02-14T10:34:32", "level": "ERROR", "logger": "__main__", "message": "Pipeline ended with issues | reason=delivery stage failed strict=False failures=1"}
+{"timestamp": "2026-02-20T22:18:45", "level": "INFO", "logger": "__main__", "message": "============================================================"}
+{"timestamp": "2026-02-20T22:18:45", "level": "INFO", "logger": "__main__", "message": "Industrial AI Intelligence Pipeline | date=2026-02-20 run_id=2026-02-20-1771622325"}
+{"timestamp": "2026-02-20T22:18:45", "level": "INFO", "logger": "__main__", "message": "options dry_run=False output=both skip_dynamic=False skip_llm_filter=False mock=False strict=False"}
+{"timestamp": "2026-02-20T22:18:51", "level": "INFO", "logger": "src.scrapers.rss_scraper", "message": "[RSS] Fetching: arXiv cs.AI (Simulation/RL) (https://rss.arxiv.org/rss/cs.AI)"}
+{"timestamp": "2026-02-20T22:18:52", "level": "INFO", "logger": "src.scrapers.rss_scraper", "message": "[RSS] Got 20 articles from arXiv cs.AI (Simulation/RL)"}
+{"timestamp": "2026-02-20T22:18:52", "level": "INFO", "logger": "src.scrapers.rss_scraper", "message": "[RSS] Fetching: arXiv cs.SY (Systems) (https://rss.arxiv.org/rss/cs.SY)"}
+{"timestamp": "2026-02-20T22:18:52", "level": "INFO", "logger": "src.scrapers.rss_scraper", "message": "[RSS] Got 20 articles from arXiv cs.SY (Systems)"}
+{"timestamp": "2026-02-20T22:18:52", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Fetching Plattform Industrie 4.0: https://www.plattform-i40.de/"}
+{"timestamp": "2026-02-20T22:18:52", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Got 13 articles from Plattform Industrie 4.0"}
+{"timestamp": "2026-02-20T22:18:52", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Fetching Fraunhofer IPA Press: https://www.ipa.fraunhofer.de/de/presse/presseinformationen.html"}
+{"timestamp": "2026-02-20T22:18:52", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Got 10 articles from Fraunhofer IPA Press"}
+{"timestamp": "2026-02-20T22:18:52", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Fetching DFKI News: https://www.dfki.de/web/news-media/presse"}
+{"timestamp": "2026-02-20T22:18:53", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Got 3 articles from DFKI News"}
+{"timestamp": "2026-02-20T22:18:53", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Fetching TUM fml (Logistics): https://www.mec.ed.tum.de/en/fml/cover-page/"}
+{"timestamp": "2026-02-20T22:18:53", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Got 2 articles from TUM fml (Logistics)"}
+{"timestamp": "2026-02-20T22:18:53", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Fetching SimPlan Blog/News: https://www.simplan.de/en/news/"}
+{"timestamp": "2026-02-20T22:18:53", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Got 12 articles from SimPlan Blog/News"}
+{"timestamp": "2026-02-20T22:18:53", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Fetching VDI Nachrichten Tech: https://www.vdi-nachrichten.com/technik/"}
+{"timestamp": "2026-02-20T22:18:54", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Got 20 articles from VDI Nachrichten Tech"}
+{"timestamp": "2026-02-20T22:18:54", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Fetching de:hub Smart Systems: https://www.de-hub.de/en/"}
+{"timestamp": "2026-02-20T22:18:54", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Got 3 articles from de:hub Smart Systems"}
+{"timestamp": "2026-02-20T22:18:54", "level": "WARNING", "logger": "src.scrapers.web_scraper", "message": "[WEB] Skipping observed source 'ABB Robotics News' (disabled after 3 consecutive zero-result runs)"}
+{"timestamp": "2026-02-20T22:18:54", "level": "WARNING", "logger": "src.scrapers.web_scraper", "message": "[WEB] Skipping observed source 'Rockwell Automation Blog' (disabled after 3 consecutive zero-result runs)"}
+{"timestamp": "2026-02-20T22:18:54", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Fetching NVIDIA Manufacturing AI Blog: https://blogs.nvidia.com/blog/category/manufacturing/"}
+{"timestamp": "2026-02-20T22:18:55", "level": "ERROR", "logger": "src.scrapers.web_scraper", "message": "[WEB] Failed to scrape NVIDIA Manufacturing AI Blog: 404 Client Error: Not Found for url: https://blogs.nvidia.com/blog/category/manufacturing/"}
+{"timestamp": "2026-02-20T22:18:55", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Fetching Bosch Stories (Manufacturing/AI): https://www.bosch.com/stories/"}
+{"timestamp": "2026-02-20T22:18:55", "level": "INFO", "logger": "src.scrapers.web_scraper", "message": "[WEB] Got 20 articles from Bosch Stories (Manufacturing/AI)"}
+{"timestamp": "2026-02-20T22:18:55", "level": "INFO", "logger": "src.scrapers.dynamic_scraper", "message": "[DYNAMIC] Fetching Handelsblatt: https://www.handelsblatt.com/technik/"}
+{"timestamp": "2026-02-20T22:19:00", "level": "INFO", "logger": "src.scrapers.dynamic_scraper", "message": "[DYNAMIC] Got 20 articles from Handelsblatt"}
+{"timestamp": "2026-02-20T22:19:00", "level": "INFO", "logger": "__main__", "message": "[SCRAPE] total=143 deduped=133"}
+{"timestamp": "2026-02-20T22:19:01", "level": "INFO", "logger": "src.filters.ollama_filter", "message": "[FILTER] Starting filter on 133 articles"}
+{"timestamp": "2026-02-20T22:19:01", "level": "INFO", "logger": "src.filters.ollama_filter", "message": "[FILTER] 32/133 passed keyword threshold (>=1)"}
+{"timestamp": "2026-02-20T22:19:03", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:04", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:04", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:05", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:06", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:07", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:09", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:10", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:11", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:12", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:12", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:13", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:13", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:14", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:14", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:15", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:17", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:18", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:19", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:19", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:20", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:21", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:21", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:22", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:23", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:24", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:24", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:25", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:26", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:28", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:28", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:29", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:19:29", "level": "INFO", "logger": "src.filters.ollama_filter", "message": "[FILTER] 5/32 passed LLM Cloud validation"}
+{"timestamp": "2026-02-20T22:19:29", "level": "INFO", "logger": "src.analyzers.llm_analyzer", "message": "[Local_Ollama] Starting analysis of 5 articles (Mock=False)"}
+{"timestamp": "2026-02-20T22:20:05", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST http://localhost:11434/v1/chat/completions \"HTTP/1.1 200 OK\""}
+{"timestamp": "2026-02-20T22:20:05", "level": "INFO", "logger": "src.analyzers.llm_analyzer", "message": "[Local_Ollama] Raw response (4180 chars): ```json\n{\n  \"category_tag\": \"Edge AI / Distributed Machine Learning / Decentralised AI\",\n  \"title_zh\": \"节点学习：自适应、去中心化与协作式网络边缘人工智能框架\",\n  \"title_en\": \"Node Learning: A Framework for Adaptive, Decentralised and Collaborative Network Edge AI\",\n  \"title_de\": \"Node Learning: Ein Framework für adaptives, d..."}
+{"timestamp": "2026-02-20T22:20:05", "level": "INFO", "logger": "src.analyzers.llm_analyzer", "message": "[Local_Ollama] ✅ Analyzed: [Edge AI / Distributed Machine Learning / Decentralised AI] 节点学习：自适应、去中心化与协作式网络边缘人工智能框架"}
+{"timestamp": "2026-02-20T22:20:05", "level": "INFO", "logger": "src.analyzers.llm_analyzer", "message": "[Local_Ollama] Processing 1/5: Node Learning: A Framework for Adaptive, Decentral"}
