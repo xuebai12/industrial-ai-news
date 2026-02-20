@@ -122,29 +122,6 @@ NOTION_DATABASE_ID=
 
 > 💡 Gmail 需要开启"两步验证"并生成"应用专用密码"，不能直接用账号密码。
 
-### 第 3 步：配置收件人（在 `config.py` 里）
-
-打开 `config.py`，找到 `RECIPIENT_PROFILES` 部分，修改邮件地址：
-
-```python
-RECIPIENT_PROFILES = [
-    RecipientProfile(
-        name="Student (Simulation)",
-        email="学生的邮箱@example.com",   # ← 改这里
-        language="zh",
-        persona="student",
-        ...
-    ),
-    RecipientProfile(
-        name="Technician",
-        email="技师的邮箱@example.com",   # ← 改这里
-        language="de",
-        persona="technician",
-        ...
-    ),
-]
-```
-
 ---
 
 ## ▶️ 日常运行
