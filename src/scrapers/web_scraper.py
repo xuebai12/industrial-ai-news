@@ -224,6 +224,18 @@ def scrape_web_sources(max_items: int = 20, sources: list | None = None) -> list
         "Kaggle Competitions": "a[href*='/competitions/'], .competition-list__item a, article a",
         "Manufacturing.net": "article a, .node a, .teaser a, a[href*='/']",
         "Medium Industrial Data Science": "article a, .postArticle a, a[href*='/p/']",
+        "Volkswagen Group Newsroom": "article a, .news-item a, .teaser a, a[href*='/news-']",
+        "BMW Group PressClub": "article a, .cmp-teaser a, .teaser a, a[href*='/article/']",
+        "Mercedes-Benz Group Media": "article a, .teaser a, .m-media-tile a, a[href*='/article/']",
+        "Automotive News Europe": "article a, .node a, .view-content a, a[href*='/']",
+        "SAE International News": "article a, .news-item a, .teaser a, a[href*='/news/']",
+        "36Kr AI": "article a, .article-item-title a, .kr-shadow-content a, a[href*='/p/']",
+        "Jiqizhixin": "article a, .article-item a, .post-item a, a[href*='/articles/']",
+        "Gaogong Robotics": "article a, .list-item a, .news-list a, a[href*='/news/']",
+        "Jazzyear (甲子光年)": "article a, .list-item a, .post-item a, a[href*='/']",
+        "MIIT News": "article a, .list a, .news-list a, a[href*='/art/']",
+        "CAICT News": "article a, .list-item a, .news-list a, a[href*='/']",
+        "BYD Newsroom": "article a, .news-item a, .list-item a, a[href*='/news/']",
     }
     
     # Generic fallback selector (通用回退选择器)

@@ -34,11 +34,11 @@
 
 ### 🔧 技师版（Technician）
 - 语言：德文
-- 风格：实操导向，阅读障碍友好（大字体、色块分区、关键词加粗）
+- 风格：实操导向，阅读障碍友好（大字体、高对比色块、短句优先）
 - 内容：
-  - 🔵 **技术原理**（Was passiert technisch?）
-  - 🟢 **带来什么好处**（Welcher Nutzen entsteht?）
-  - 🟠 **入门：这是什么意思**（Einstieg: Was bedeutet das?）
+  - 🔵 **Kernfokus**（应用场景与落地重点，短句列表）
+  - 🟠 **Kernmechanismus**（用形象比喻解释“它怎么运作”）
+  - 展示方式：**两栏位、两颜色、上下排列**（不做左右分栏）
 
 ---
 
@@ -70,7 +70,7 @@ news/
 ├── output/                  ← 输出目录：每次运行的结果文件
 │   ├── digest-YYYY-MM-DD.md        每日摘要（Markdown 格式）
 │   ├── sent_history.json           已发送记录（防止重复发送）
-│   └── email-template-preview-technician.html  技师版邮件预览
+│   └── newsletter_preview_technician.html      技师版邮件预览
 │
 └── tests/                   ← 自动测试：确保代码改动没有破坏功能
 ```
@@ -171,7 +171,7 @@ NOTION_DATABASE_ID=
 | 大厂官方博客 | Siemens、ABB、Bosch、Google Cloud |
 | 学术论文预印本 | arXiv（cs.AI、cs.SY） |
 | 供应链平台 | SAP、AWS、Oracle |
-| YouTube 视频 | Industrial AI 频道、Siemens 官方 |
+| YouTube 视频 | Industrial AI 及工业主题频道 |
 
 ---
 
@@ -194,7 +194,7 @@ NOTION_DATABASE_ID=
 ```bash
 ./.venv/bin/python main.py --dry-run --output email
 ```
-也可以直接在浏览器里打开 `output/email-template-preview-technician.html`
+也可以直接在浏览器里打开 `output/newsletter_preview_technician.html`
 
 ---
 
