@@ -344,7 +344,7 @@ DATA_SOURCES: list[DataSource] = [
     ),
     DataSource(
         name="NVIDIA Manufacturing AI Blog",
-        url="https://blogs.nvidia.com/blog/category/manufacturing/",
+        url="https://blogs.nvidia.com/blog/",
         source_type="web",
         language="en",
         category="industry",
@@ -376,14 +376,6 @@ DATA_SOURCES: list[DataSource] = [
         priority=2,
     ),
     DataSource(
-        name="Gaogong Robotics",
-        url="https://www.gg-robot.com/",
-        source_type="web",
-        language="zh",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
         name="Jazzyear (甲子光年)",
         url="https://www.jazzyear.com/",
         source_type="web",
@@ -400,16 +392,8 @@ DATA_SOURCES: list[DataSource] = [
         priority=2,
     ),
     DataSource(
-        name="CAICT News",
-        url="https://www.caict.ac.cn/kxyj/qwfb/",
-        source_type="web",
-        language="zh",
-        category="research",
-        priority=2,
-    ),
-    DataSource(
         name="BYD Newsroom",
-        url="https://www.bydglobal.com/cn/news/",
+        url="https://www.byd.com/en/news",
         source_type="web",
         language="zh",
         category="industry",
@@ -418,7 +402,7 @@ DATA_SOURCES: list[DataSource] = [
     # --- 2c. Germany Automotive / Semiconductors / China Robotics (增量扩展) ---
     DataSource(
         name="Volkswagen Group Newsroom",
-        url="https://www.volkswagen-group.com/en/news-stories",
+        url="https://www.volkswagen-group.com/en/news",
         source_type="web",
         language="en",
         category="industry",
@@ -474,7 +458,7 @@ DATA_SOURCES: list[DataSource] = [
     ),
     DataSource(
         name="NXP Newsroom",
-        url="https://www.nxp.com/company/about-nxp/newsroom:NEWSROOM",
+        url="https://www.nxp.com/company/about-nxp/newsroom",
         source_type="web",
         language="en",
         category="industry",
@@ -580,14 +564,6 @@ DATA_SOURCES: list[DataSource] = [
         category="industry",
         priority=2,
     ),
-    DataSource(
-        name="Keyence News",
-        url="https://www.keyence.com/news/",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
     # Factory / 子类4: 设备运维与预测性维护 (Asset Ops & Predictive Maintenance)
     DataSource(
         name="Augury Blog",
@@ -659,7 +635,7 @@ DATA_SOURCES: list[DataSource] = [
     ),
     DataSource(
         name="pv magazine Industry",
-        url="https://www.pv-magazine.com/category/industry/",
+        url="https://www.pv-magazine.com/",
         source_type="web",
         language="en",
         category="industry",
