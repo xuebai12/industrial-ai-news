@@ -7,6 +7,7 @@ RSS 订阅源抓取器 (RSS Feed Scraper)
 import logging
 from datetime import datetime
 from typing import Optional
+import re
 
 import feedparser
 
@@ -92,6 +93,7 @@ def scrape_rss(name: str, url: str, language: str, category: str,
                 language=language,
                 category=category,
                 published_date=parse_date(entry),
+                video_views=_extract_youtube_views(entry, url),
             )
             articles.append(article)
 
@@ -101,3 +103,40 @@ def scrape_rss(name: str, url: str, language: str, category: str,
         logger.error(f"[RSS] Failed to scrape {name}: {e}")
 
     return articles
+
+
+def _extract_youtube_views(entry: dict, feed_url: str) -> int | None:
+    """Try to parse YouTube view count from RSS entry metadata."""
+    if "youtube.com/feeds/videos.xml" not in (feed_url or ""):
+        return None
+
+    candidates: list[object] = []
+    # Common feedparser namespace mappings
+    candidates.append(entry.get("yt_statistics"))
+    candidates.append(entry.get("media_statistics"))
+    # Fallback to direct keys sometimes flattened by parser
+    for key in ("views", "viewcount", "yt_views"):
+        if key in entry:
+            candidates.append(entry.get(key))
+
+    for item in candidates:
+        if item is None:
+            continue
+        if isinstance(item, dict):
+            for k in ("views", "viewCount", "viewcount"):
+                raw = item.get(k)
+                if raw is None:
+                    continue
+                try:
+                    return int(str(raw).replace(",", "").strip())
+                except Exception:
+                    pass
+        else:
+            s = str(item)
+            m = re.search(r"(\d[\d,]*)", s)
+            if m:
+                try:
+                    return int(m.group(1).replace(",", ""))
+                except Exception:
+                    pass
+    return None

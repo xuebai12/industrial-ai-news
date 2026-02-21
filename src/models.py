@@ -17,6 +17,7 @@ class Article:
     language: str           # 语言代码 ("de", "en", "zh")
     category: str           # 原始分类 (e.g. "Technology")
     published_date: datetime | None = None  # 发布时间
+    video_views: int | None = None  # YouTube 播放量（若可提取）
     relevance_score: int = 0  # 关联度评分 (关键词匹配得分)
     target_personas: list[str] = field(default_factory=list) # 目标受众标签
 

@@ -87,5 +87,53 @@ class TestOllamaFilterLogic(unittest.TestCase):
         # "Maybe Drop Me" -> None, score 1 -> Dropped (fallback requires >= 2)
         self.assertEqual(len(result), 0)
 
+    def test_negative_theory_without_industry_context_is_filtered(self):
+        article = Article(
+            title="Spatio-temporal dual-stage hypergraph theorem for reasoning benchmark",
+            url="u4",
+            source="s",
+            content_snippet="Ablation study only on synthetic dataset and leaderboard.",
+            language="en",
+            category="research",
+        )
+        score, personas = ollama_filter.keyword_score(article)
+        self.assertEqual(score, 0)
+        self.assertEqual(personas, [])
+
+    def test_negative_theory_with_industry_context_is_downweighted_not_blocked(self):
+        article = Article(
+            title="Hypergraph method for predictive maintenance in factory production line",
+            url="u5",
+            source="s",
+            content_snippet="Industrial PLC and MES data are used for condition monitoring.",
+            language="en",
+            category="industry",
+        )
+        score, personas = ollama_filter.keyword_score(article)
+        self.assertGreaterEqual(score, 1)
+
+    def test_youtube_low_views_are_downweighted(self):
+        high_view_article = Article(
+            title="Industrial AI for factory quality inspection",
+            url="https://www.youtube.com/watch?v=abc",
+            source="YouTube RSS: Industrial AI",
+            content_snippet="Machine vision for defect detection in production line.",
+            language="en",
+            category="industry",
+            video_views=100,
+        )
+        low_view_article = Article(
+            title="Industrial AI for factory quality inspection",
+            url="https://www.youtube.com/watch?v=abc",
+            source="YouTube RSS: Industrial AI",
+            content_snippet="Machine vision for defect detection in production line.",
+            language="en",
+            category="industry",
+            video_views=5,
+        )
+        high_score, _ = ollama_filter.keyword_score(high_view_article)
+        low_score, _ = ollama_filter.keyword_score(low_view_article)
+        self.assertLess(low_score, high_score)
+
 if __name__ == '__main__':
     unittest.main()

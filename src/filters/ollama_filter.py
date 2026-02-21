@@ -16,6 +16,8 @@ from config import (
     HIGH_PRIORITY_KEYWORDS,
     MEDIUM_PRIORITY_KEYWORDS,
     TECHNICIAN_KEYWORDS,
+    INDUSTRY_CONTEXT_KEYWORDS,
+    NEGATIVE_THEORY_ONLY_KEYWORDS,
     LLM_API_KEY,
     LLM_BASE_URL,
     LLM_MODEL,
@@ -102,6 +104,29 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
         for kw in BROAD_KEYWORDS:
             if _contains_keyword(text, kw):
                 score += 1
+
+    # 负向理论/招聘/营销词降噪规则：
+    # 1) 命中负向词且无工业场景语境 -> 直接过滤（score=0）
+    # 2) 命中负向词且有工业场景语境 -> 允许但降权（至少保留 1 分）
+    has_negative_theory = any(_contains_keyword(text, kw) for kw in NEGATIVE_THEORY_ONLY_KEYWORDS)
+    has_industry_context = any(_contains_keyword(text, kw) for kw in INDUSTRY_CONTEXT_KEYWORDS)
+    if has_negative_theory and not has_industry_context:
+        logger.debug(f"  theory-only noise filtered: {article.title[:80]}")
+        return 0, []
+    if has_negative_theory and has_industry_context:
+        score = max(1, score - 2)
+        logger.debug(f"  theory-only noise downweighted with industry context: {article.title[:80]}")
+
+    # YouTube low-traction downweight: if views < 10, reduce score.
+    # This is a soft penalty (not hard block) to keep potential niche high-quality items.
+    is_youtube_source = "youtube" in (article.source or "").lower() or "youtu" in (article.url or "").lower()
+    if is_youtube_source and article.video_views is not None and article.video_views < 10:
+        score = max(0, score - 2)
+        logger.debug(
+            "  low-view youtube downweighted (%s views): %s",
+            article.video_views,
+            article.title[:80],
+        )
 
     # Default to Student if relevant but no specific persona tag
     if score >= RELEVANCE_THRESHOLD and not personas:
