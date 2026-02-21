@@ -22,6 +22,7 @@ from config import (
     NEGATIVE_THEORY_ONLY_KEYWORDS,
     HARD_EXCLUDE_NOISE_KEYWORDS,
     DOWNWEIGHT_NOISE_KEYWORDS,
+    UNIVERSAL_ROBOTS_PROMO_KEYWORDS,
     TRUSTED_SOURCE_DOMAINS,
     LLM_API_KEY,
     LLM_BASE_URL,
@@ -138,6 +139,14 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
     hard_exclude_url_parts = ("/presse/", "/press/", "/media-contact", "/press-contact")
     if any(part in url_text for part in hard_exclude_url_parts):
         logger.debug(f"  hard-exclude URL filtered: {article.url}")
+        return 0, []
+
+    # Universal Robots: apply hard filter only on promo-style combinations.
+    # Do not block all UR content by brand alone.
+    has_ur_brand = "universal robots" in text
+    has_ur_promo = any(_contains_keyword(text, kw) for kw in UNIVERSAL_ROBOTS_PROMO_KEYWORDS)
+    if has_ur_brand and has_ur_promo:
+        logger.debug(f"  hard-exclude UR promo filtered: {article.title[:80]}")
         return 0, []
 
     # 降权而非过滤：针对用户指定的“希望降权”的内容模式

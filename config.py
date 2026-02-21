@@ -433,7 +433,7 @@ RECIPIENT_PROFILES = [
     RecipientProfile(
         name="Student (Simulation)",
         email=EMAIL_TO,  # Default to env var for now
-        language="zh",
+        language="en",
         persona="student",
         delivery_channel="email",
         focus_keywords=["Simulation", "AI", "Python", "Job", "Thesis"],

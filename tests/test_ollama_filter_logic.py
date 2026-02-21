@@ -197,5 +197,30 @@ class TestOllamaFilterLogic(unittest.TestCase):
         self.assertEqual(score, 0)
         self.assertEqual(personas, [])
 
+    def test_universal_robots_promo_is_hard_filtered(self):
+        article = Article(
+            title="Celebrating 20 years of Universal Robots · Built by us. Driven by you.",
+            url="https://www.youtube.com/watch?v=urpromo",
+            source="YouTube RSS: Universal Robots",
+            content_snippet="Brand campaign and celebration video.",
+            language="en",
+            category="industry",
+        )
+        score, personas = ollama_filter.keyword_score(article)
+        self.assertEqual(score, 0)
+        self.assertEqual(personas, [])
+
+    def test_universal_robots_technical_content_not_blocked_by_brand_only(self):
+        article = Article(
+            title="Universal Robots introduces AI-based vision for bin picking",
+            url="https://www.youtube.com/watch?v=urtech",
+            source="YouTube RSS: Universal Robots",
+            content_snippet="Industrial AI and machine vision in robotic cells.",
+            language="en",
+            category="industry",
+        )
+        score, _ = ollama_filter.keyword_score(article)
+        self.assertGreater(score, 0)
+
 if __name__ == '__main__':
     unittest.main()
