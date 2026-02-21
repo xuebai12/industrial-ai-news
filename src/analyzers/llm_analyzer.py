@@ -230,11 +230,23 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
 
     # Attempt strategy:
     # - Local: start with simplified JSON prompt for stability
-    # - Remote/cloud: keep full prompt first
+    # - Remote/cloud: full prompt first, then simplified fallback
     if IS_LOCAL:
         data = _call_and_parse(client, SIMPLE_JSON_PROMPT, user_content)
     else:
         data = _call_and_parse(client, SYSTEM_PROMPT, user_content)
+
+    # Cloud fallback: simplified schema + shorter input can recover empty/non-JSON responses.
+    if data is None and not IS_LOCAL:
+        logger.warning(f"[{API_PROVIDER}] Retry with simplified JSON prompt for '{article.title[:40]}'")
+        short_user_content = (
+            f"title: {article.title[:180]}\n"
+            f"source: {article.source}\n"
+            f"url: {article.url}\n"
+            f"snippet: {article.content_snippet[:350]}\n"
+            f"reply with JSON only."
+        )
+        data = _call_and_parse(client, SIMPLE_JSON_PROMPT, short_user_content)
 
     # --- Attempt 3: Retry with strict minimal schema + shorter input (尝试 3: 最小化输入重试) ---
     if data is None and IS_LOCAL:
@@ -321,6 +333,28 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
 
 def _call_and_parse(client: OpenAI, system_prompt: str, user_content: str) -> dict | None:
     """Call the model and attempt to parse JSON from the response."""
+    def _message_to_text(message: object) -> str:
+        content = getattr(message, "content", None)
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    text = item.get("text") or item.get("content")
+                    if isinstance(text, str):
+                        parts.append(text)
+            return "\n".join([p for p in parts if p]).strip()
+
+        # Some providers put text in non-standard fields.
+        for attr in ("reasoning_content", "refusal"):
+            value = getattr(message, attr, None)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
     try:
         request_kwargs = {
             "model": LLM_MODEL,
@@ -339,9 +373,10 @@ def _call_and_parse(client: OpenAI, system_prompt: str, user_content: str) -> di
             **request_kwargs
         )
 
-        raw = response.choices[0].message.content
+        raw = _message_to_text(response.choices[0].message)
         if not raw:
-            logger.warning(f"[{API_PROVIDER}] Empty response from model")
+            finish_reason = getattr(response.choices[0], "finish_reason", "unknown")
+            logger.warning(f"[{API_PROVIDER}] Empty response from model (finish_reason={finish_reason})")
             return None
 
         raw = raw.strip()
