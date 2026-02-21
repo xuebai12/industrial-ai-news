@@ -184,5 +184,18 @@ class TestOllamaFilterLogic(unittest.TestCase):
         self.assertLess(noisy_score, base_score)
         self.assertGreaterEqual(noisy_score, 0)
 
+    def test_press_contact_url_is_hard_filtered(self):
+        article = Article(
+            title="Industrial AI update",
+            url="https://example.com/de/presse/pressekontakt",
+            source="s",
+            content_snippet="AI in manufacturing and predictive maintenance",
+            language="de",
+            category="industry",
+        )
+        score, personas = ollama_filter.keyword_score(article)
+        self.assertEqual(score, 0)
+        self.assertEqual(personas, [])
+
 if __name__ == '__main__':
     unittest.main()

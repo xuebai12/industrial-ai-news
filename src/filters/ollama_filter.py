@@ -133,6 +133,13 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
         logger.debug(f"  hard-exclude noise filtered: {article.title[:80]}")
         return 0, []
 
+    # URL-level hard excludes for press/contact pages.
+    url_text = (article.url or "").lower()
+    hard_exclude_url_parts = ("/presse/", "/press/", "/media-contact", "/press-contact")
+    if any(part in url_text for part in hard_exclude_url_parts):
+        logger.debug(f"  hard-exclude URL filtered: {article.url}")
+        return 0, []
+
     # 降权而非过滤：针对用户指定的“希望降权”的内容模式
     has_downweight_noise = any(_contains_keyword(text, kw) for kw in DOWNWEIGHT_NOISE_KEYWORDS)
     if has_downweight_noise:

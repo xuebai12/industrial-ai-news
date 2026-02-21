@@ -152,6 +152,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="使用模拟数据进行 LLM 分析 (Use mock data for LLM analysis)",
     )
+    parser.add_argument(
+        "--forward",
+        action="store_true",
+        help="审核后转发：将 digest 额外发送至 EXTERNAL_RECIPIENTS（手动触发）",
+    )
     return parser.parse_args(argv)
 
 
@@ -476,6 +481,30 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
                          raise RuntimeError(f"Email delivery failed for profile {profile.name}")
 
                 result.email_sent = True # Mark as sent if we got here (individual failures raised if strict)
+
+                # 转发阶段 (Forward to external recipients after review)
+                if args.forward:
+                    import copy
+                    from config import EXTERNAL_RECIPIENTS
+                    for persona, addrs in EXTERNAL_RECIPIENTS.items():
+                        matching = [p for p in RECIPIENT_PROFILES if p.persona == persona]
+                        if not matching:
+                            logger.warning("[FORWARD] No profile found for persona '%s'", persona)
+                            continue
+                        base_profile = matching[0]
+                        fwd_articles = [
+                            a for a in analyzed
+                            if persona in (a.target_personas or [])
+                            or (not a.target_personas and persona == "student")
+                        ]
+                        if not fwd_articles:
+                            logger.info("[FORWARD] No articles for persona '%s', skipping", persona)
+                            continue
+                        for addr in addrs:
+                            fwd_profile = copy.copy(base_profile)
+                            fwd_profile.email = addr
+                            logger.info("[FORWARD] Sending to external: %s (%s)", addr, persona)
+                            send_email(fwd_articles, today, profile=fwd_profile, pending_articles=pending_articles)
 
             if args.output in ("markdown", "both"):
                 result.markdown_path = save_digest_markdown(

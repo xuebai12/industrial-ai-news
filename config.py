@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 # 读取 NVIDIA 的 API Key (MOONSHOT_API_KEY 已移除)
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 
+# 外部收件人列表（仅在手动审核通过后，使用 --forward 转发）
+# External recipients – only sent after owner review via `python main.py --forward`
+EXTERNAL_RECIPIENTS: dict[str, list[str]] = {
+    "technician": ["max@max-lang.de"],
+}
+
 # Determine which provider to use (自动判断使用哪个模型提供商)
 # 优先级 Priority: USE_LOCAL_OLLAMA > NVIDIA NIM > Local Ollama (Fallback)
 USE_LOCAL_OLLAMA = os.getenv("USE_LOCAL_OLLAMA", "false").lower() == "true"
@@ -289,6 +295,11 @@ HARD_EXCLUDE_NOISE_KEYWORDS = [
     "breaking the encryption: analyzing the automationdirect click plus plc protocol",
     "power device library overview",
     "besuchen",
+    "pressemitteilungen",
+    "pressekontakt",
+    "software package for energy-efficient and sustainable building operation",
+    "celebrating",
+    "built by us. driven by you",
 ]
 
 # 降权词：命中后降低分数，但不直接过滤
@@ -346,6 +357,12 @@ DOWNWEIGHT_NOISE_KEYWORDS = [
     "功能介绍",
     "教程",
     "上手指南",
+]
+
+# Universal Robots 品牌宣传组合词（仅组合触发硬过滤）
+UNIVERSAL_ROBOTS_PROMO_KEYWORDS = [
+    "celebrating",
+    "built by us. driven by you",
 ]
 
 # 工业场景语境词：用于理论负向词的共现豁免（命中则降权，不直接过滤）
@@ -423,7 +440,7 @@ RECIPIENT_PROFILES = [
     ),
     RecipientProfile(
         name="Technician (Maintenance)",
-        email=",".join([e for e in [EMAIL_TO, "max@max-lang.de"] if e]),
+        email=EMAIL_TO,  # 默认只发给自己审核；审核通过后用 --forward 转发至 EXTERNAL_RECIPIENTS
         language="de",  # German localization
         persona="technician",
         delivery_channel="email",
