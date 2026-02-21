@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
@@ -24,8 +25,14 @@ IS_LOCAL = API_PROVIDER == "Local_Ollama"
 MAX_TOKENS = int(os.getenv("KIMI_MAX_TOKENS", "1400" if IS_LOCAL else "800"))
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("KIMI_TIMEOUT_SECONDS", "60"))
 MAX_CONCURRENCY = max(1, int(os.getenv("KIMI_MAX_CONCURRENCY", "1" if IS_LOCAL else "4")))
+CLIENT_MAX_RETRIES = int(os.getenv("KIMI_CLIENT_MAX_RETRIES", "1" if IS_LOCAL else "0"))
+MIN_REQUEST_INTERVAL_SECONDS = float(os.getenv("KIMI_MIN_REQUEST_INTERVAL_SECONDS", "2.0" if not IS_LOCAL else "0.2"))
+RATE_LIMIT_BACKOFF_SECONDS = float(os.getenv("KIMI_RATE_LIMIT_BACKOFF_SECONDS", "10"))
+MAX_RATE_LIMIT_RETRIES = int(os.getenv("KIMI_RATE_LIMIT_MAX_RETRIES", "2"))
 # For local inference, keep retries conservative to avoid long backlogs.
 LOCAL_ENABLE_FINAL_RETRY = os.getenv("LOCAL_ENABLE_FINAL_RETRY", "false").lower() == "true"
+_rate_lock = threading.Lock()
+_last_request_ts = 0.0
 
 def _get_client() -> OpenAI:
     """Lazy-init API client (延迟初始化 API 客户端)."""
@@ -38,6 +45,7 @@ def _get_client() -> OpenAI:
         _client = OpenAI(
             api_key=LLM_API_KEY,
             base_url=LLM_BASE_URL,
+            max_retries=CLIENT_MAX_RETRIES,
         )
     return _client
 
@@ -355,48 +363,67 @@ def _call_and_parse(client: OpenAI, system_prompt: str, user_content: str) -> di
                 return value.strip()
         return ""
 
-    try:
-        request_kwargs = {
-            "model": LLM_MODEL,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-            "temperature": 0.0 if IS_LOCAL else 0.2,
-            "max_tokens": MAX_TOKENS,
-            "timeout": REQUEST_TIMEOUT_SECONDS,
-        }
-        if IS_LOCAL:
-            request_kwargs["extra_body"] = {"format": "json"}
+    for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+        try:
+            global _last_request_ts
+            # Global throttle to reduce provider-side 429 for cloud endpoints.
+            with _rate_lock:
+                now = time.monotonic()
+                wait_s = MIN_REQUEST_INTERVAL_SECONDS - (now - _last_request_ts)
+                if wait_s > 0:
+                    time.sleep(wait_s)
+                _last_request_ts = time.monotonic()
 
-        response = client.chat.completions.create(
-            **request_kwargs
-        )
+            request_kwargs = {
+                "model": LLM_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                "temperature": 0.0 if IS_LOCAL else 0.2,
+                "max_tokens": MAX_TOKENS,
+                "timeout": REQUEST_TIMEOUT_SECONDS,
+            }
+            if IS_LOCAL:
+                request_kwargs["extra_body"] = {"format": "json"}
 
-        raw = _message_to_text(response.choices[0].message)
-        if not raw:
-            finish_reason = getattr(response.choices[0], "finish_reason", "unknown")
-            logger.warning(f"[{API_PROVIDER}] Empty response from model (finish_reason={finish_reason})")
+            response = client.chat.completions.create(
+                **request_kwargs
+            )
+
+            raw = _message_to_text(response.choices[0].message)
+            if not raw:
+                finish_reason = getattr(response.choices[0], "finish_reason", "unknown")
+                logger.warning(f"[{API_PROVIDER}] Empty response from model (finish_reason={finish_reason})")
+                return None
+
+            raw = raw.strip()
+            logger.info(f"[{API_PROVIDER}] Raw response ({len(raw)} chars): {raw[:300]}...")
+
+            data = _extract_json(raw)
+            if data is None:
+                logger.warning(f"[{API_PROVIDER}] Could not extract JSON from response")
+                return None
+
+            return data
+
+        except Exception as e:
+            msg = str(e).lower()
+            if "429" in msg or "too many requests" in msg:
+                if attempt < MAX_RATE_LIMIT_RETRIES:
+                    backoff = RATE_LIMIT_BACKOFF_SECONDS * (2 ** attempt)
+                    logger.warning(
+                        f"[{API_PROVIDER}] 429 rate limit, backoff {backoff:.1f}s then retry ({attempt + 1}/{MAX_RATE_LIMIT_RETRIES})"
+                    )
+                    time.sleep(backoff)
+                    continue
+            logger.error(f"[{API_PROVIDER}] API call error: {e}")
+            # Local Ollama can return 429 when previous timed-out requests are still running.
+            # Brief backoff reduces retry pressure and queue buildup.
+            if IS_LOCAL and ("429" in msg or "too many concurrent requests" in msg):
+                time.sleep(2.0)
             return None
-
-        raw = raw.strip()
-        logger.info(f"[{API_PROVIDER}] Raw response ({len(raw)} chars): {raw[:300]}...")
-
-        data = _extract_json(raw)
-        if data is None:
-            logger.warning(f"[{API_PROVIDER}] Could not extract JSON from response")
-            return None
-
-        return data
-
-    except Exception as e:
-        logger.error(f"[{API_PROVIDER}] API call error: {e}")
-        # Local Ollama can return 429 when previous timed-out requests are still running.
-        # Brief backoff reduces retry pressure and queue buildup.
-        msg = str(e).lower()
-        if IS_LOCAL and ("429" in msg or "too many concurrent requests" in msg):
-            time.sleep(2.0)
-        return None
+    return None
 
 
 def analyze_articles(articles: list[Article], mock: bool = False) -> list[AnalyzedArticle]:

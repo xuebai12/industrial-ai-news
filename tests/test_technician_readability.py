@@ -57,9 +57,8 @@ class TestTechnicianReadability(unittest.TestCase):
         profile = SimpleNamespace(language="de", persona="technician")
         pending = [
             {
+                "category": "industry",
                 "title": "Nicht analysierter Artikel 1",
-                "source": "Quelle A",
-                "score": 5,
                 "url": "https://example.com/pending-1",
             }
         ]
@@ -68,7 +67,8 @@ class TestTechnicianReadability(unittest.TestCase):
 
         self.assertIn("Weitere Relevante Artikel (nicht analysiert)", html)
         self.assertIn("Nicht analysierter Artikel 1", html)
-        self.assertIn("score", html.lower())
+        self.assertIn("industry", html)
+        self.assertNotIn("score", html.lower())
 
 
 if __name__ == "__main__":

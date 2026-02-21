@@ -137,9 +137,8 @@ EMAIL_TEMPLATE = Template(
       <thead>
         <tr>
           <th>#</th>
+          <th>Kategorie</th>
           <th>Titel</th>
-          <th>Quelle</th>
-          <th>Score</th>
           <th>Link</th>
         </tr>
       </thead>
@@ -147,9 +146,8 @@ EMAIL_TEMPLATE = Template(
         {% for item in pending_articles %}
         <tr>
           <td>{{ loop.index }}</td>
+          <td>{{ item.category }}</td>
           <td>{{ item.title }}</td>
-          <td>{{ item.source }}</td>
-          <td>{{ item.score }}</td>
           <td><a href="{{ item.url }}">Open</a></td>
         </tr>
         {% endfor %}
@@ -273,8 +271,8 @@ def render_digest_text(
         lines.append("More relevant articles (not analyzed):")
         for idx, item in enumerate(pending_articles, start=1):
             lines.append(
-                f"{idx}. {_clip(item.get('title', 'N/A'), 100)} | {item.get('source', 'N/A')} "
-                f"| score={item.get('score', 0)} | {item.get('url', '')}"
+                f"{idx}. [{item.get('category', 'N/A')}] {_clip(item.get('title', 'N/A'), 100)} "
+                f"| {item.get('url', '')}"
             )
         lines.append("")
 

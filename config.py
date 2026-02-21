@@ -74,20 +74,20 @@ RELEVANCE_THRESHOLD = int(_relevance_threshold) if _relevance_threshold else 1  
 # 高优先级关键词 (+2 分)
 HIGH_PRIORITY_KEYWORDS = [
     # Core DE terms (德语核心词)
-    "Ablaufsimulation",       # Process simulation (more precise than "Simulation")
-    "Fertigungssteuerung",    # Production control
-    "Virtuelle Inbetriebnahme", # Virtual Commissioning
+    "Ablaufsimulation",
+    "Fertigungssteuerung",
+    "Virtuelle Inbetriebnahme",
     "VIBN",
-    "KI-gestützte Optimierung", # AI-supported optimization
-    "KI-gestützte Fertigung",   # AI-supported manufacturing
-    "Diskrete Ereignissimulation", # Discrete Event Simulation
-    "Asset Administration Shell",  # AAS
-    "Verwaltungsschale",           # AAS (German)
-    "Industrial AI",           # 工业 AI
-    "Industrielle KI",         # 工业 AI (德语)
-    "AI in Production",        # 生产中的 AI
-    "KI in der Produktion",    # 生产中的 AI (德语)
-    "Manufacturing AI",        # 制造 AI
+    "KI-gestützte Optimierung",
+    "KI-gestützte Fertigung",
+    "Diskrete Ereignissimulation",
+    "Asset Administration Shell",
+    "Verwaltungsschale",
+    "Industrial AI",
+    "Industrielle KI",
+    "AI in Production",
+    "KI in der Produktion",
+    "Manufacturing AI",
 
     # Core EN terms (英语核心词)
     "Discrete Event Simulation",
@@ -123,6 +123,9 @@ TECHNICIAN_KEYWORDS = [
     "HMI",
     "OPC UA",
     "Anomaly Detection",
+    "collaborative robot",     # Cobot applications (e.g. Universal Robots videos)
+    "cobot",                   # Shorthand for collaborative robot
+    "AI chip",                 # AI chip supply/demand news (high signal for industrial AI readers)
 ]
 
 # 中优先级关键词 (+1 分)
@@ -167,6 +170,7 @@ MEDIUM_PRIORITY_KEYWORDS = [
     "Energy Management",
     "Lean Manufacturing",
     "Batch Optimization",
+    "Universal Robots",        # UR brand (cobot manufacturer) - like "Siemens"
 ]
 
 # 负向词：纯理论/招聘培训/营销活动类噪音
@@ -260,6 +264,90 @@ NEGATIVE_THEORY_ONLY_KEYWORDS = [
     "werbung",
 ]
 
+# 强制排除词：命中即过滤（与工业语境无关）
+HARD_EXCLUDE_NOISE_KEYWORDS = [
+    "livestream",
+    "live stream",
+    "webinar",
+    "podcast episode",
+    "event recap",
+    "conference recap",
+    "expo highlights",
+    "summit highlights",
+    "register now",
+    "save the date",
+    "meet us at",
+    "join us at",
+    # Product tutorials / how-to videos (not news)
+    "how to use",          # e.g. "How to use Device Libraries with FactoryTalk View"
+    "armorblock",          # Rockwell product manual content, not news
+    # Explicit recurring noisy titles/topics
+    "news about mtp",
+    "mtp",
+    "device libraries - overview",
+    "looking back on a successful sps 2025",
+    "breaking the encryption: analyzing the automationdirect click plus plc protocol",
+    "power device library overview",
+    "besuchen",
+]
+
+# 降权词：命中后降低分数，但不直接过滤
+DOWNWEIGHT_NOISE_KEYWORDS = [
+    "software package",
+    "make a sequence",
+    # Tutorial / demo style (usually low news value)
+    "demo",
+    "walkthrough",
+    "step by step",
+    "quick start",
+    "getting started",
+    "how-to",
+    "how to",
+    "tutorial",
+    # Version/update notes without clear AI deployment context
+    "release notes",
+    "version update",
+    "feature update",
+    "patch notes",
+    # Event / exhibition promotion
+    "booth",
+    "hall",
+    "visit us",
+    "join our booth",
+    "expo recap",
+    "trade fair recap",
+    # Brand / PR style
+    "company announcement",
+    "corporate update",
+    "brand story",
+    "customer testimonial",
+    # Generic trend / thought leadership wording
+    "future of",
+    "industry trends",
+    "top trends",
+    "insights",
+    "thought leadership",
+    # Weak-signal video wording
+    "no subtitles",
+    "teaser",
+    "trailer",
+    "highlights only",
+    # German common low-value wording
+    "einfuehrung",
+    "ueberblick",
+    "rueckblick",
+    "veranstaltungsbericht",
+    "kundenstory",
+    # Chinese common low-value wording
+    "发布会",
+    "活动回顾",
+    "参展",
+    "品牌故事",
+    "功能介绍",
+    "教程",
+    "上手指南",
+]
+
 # 工业场景语境词：用于理论负向词的共现豁免（命中则降权，不直接过滤）
 INDUSTRY_CONTEXT_KEYWORDS = [
     "manufacturing",
@@ -288,6 +376,25 @@ INDUSTRY_CONTEXT_KEYWORDS = [
     "produktionslinie",
 ]
 
+
+# --- Trusted Source Domains Whitelist (来源域名白名单) ---
+# --------------------------------------------------------
+# 命中以下域名的文章直接获得最低通过分数，跳过关键词阈值检查。
+# 适用于已知高质量、垂直领域的来源（如 plattform-i40.de、ifr.org）。
+# 这些来源发布的内容几乎都与工业 AI/自动化主题相关，关键词命中率天然较低
+# （如缩写词 AAS、标题为活动名称等）。
+# 注意：白名单文章仍会参与 LLM Cloud 二次校验（不跳过 LLM 层）。
+TRUSTED_SOURCE_DOMAINS: list[str] = [
+    "plattform-i40.de",        # Plattform Industrie 4.0 (policy/AAS/Manufacturing-X)
+    "ifr.org",                 # International Federation of Robotics
+    "ipa.fraunhofer.de",       # Fraunhofer IPA (manufacturing research)
+    "dfki.de",                 # DFKI (German AI institute)
+    "simplan.de",              # SimPlan (simulation consultancy)
+    "augury.com",              # Augury (predictive maintenance)
+    "nozominetworks.com",      # Nozomi Networks (OT/ICS cybersecurity)
+    "dragos.com",              # Dragos (OT cybersecurity)
+    "bosch.com",               # Bosch (manufacturing AI/IoT/industry stories)
+]
 
 # --- Recipient Profiles (Multi-Audience) (多受众画像配置) ---
 # ------------------------------------------------------------

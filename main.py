@@ -17,6 +17,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from config import DATA_SOURCES, RECIPIENT_PROFILES, validate_config
 
 logger = logging.getLogger(__name__)
+YOUTUBE_MAX_ITEMS = int(os.getenv("YOUTUBE_MAX_ITEMS", "5"))
 
 
 class JsonFormatter(logging.Formatter):
@@ -228,9 +229,8 @@ def _build_pending_articles_table(articles: list, start: int, limit: int = 20) -
     for article in articles[start : start + limit]:
         rows.append(
             {
+                "category": getattr(article, "category", ""),
                 "title": getattr(article, "title", "")[:140],
-                "source": getattr(article, "source", ""),
-                "score": int(getattr(article, "relevance_score", 0) or 0),
                 "url": getattr(article, "url", ""),
             }
         )
@@ -321,12 +321,15 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         rss_sources = [s for s in DATA_SOURCES if s.source_type == "rss"]
         for source in rss_sources:
             try:
+                source_max_items = args.max_articles
+                if source.name.lower().startswith("youtube rss:"):
+                    source_max_items = min(source_max_items, YOUTUBE_MAX_ITEMS)
                 articles = scrape_rss(
                     name=source.name,
                     url=source.url,
                     language=source.language,
                     category=source.category,
-                    max_items=args.max_articles,
+                    max_items=source_max_items,
                 )
                 all_articles.extend(articles)
             except Exception as exc:

@@ -135,5 +135,54 @@ class TestOllamaFilterLogic(unittest.TestCase):
         low_score, _ = ollama_filter.keyword_score(low_view_article)
         self.assertLess(low_score, high_score)
 
+    def test_hard_exclude_livestream_is_filtered(self):
+        article = Article(
+            title="Live stream Wuxi factory without subtitles | Schneider Electric",
+            url="https://www.youtube.com/watch?v=live123",
+            source="YouTube RSS: Schneider Electric",
+            content_snippet="Livestream event recap from smart factory tour.",
+            language="en",
+            category="industry",
+            video_views=1000,
+        )
+        score, personas = ollama_filter.keyword_score(article)
+        self.assertEqual(score, 0)
+        self.assertEqual(personas, [])
+
+    def test_hard_exclude_mtp_news_is_filtered(self):
+        article = Article(
+            title="News about MTP",
+            url="https://example.com/mtp",
+            source="YouTube RSS: Beckhoff Automation",
+            content_snippet="MTP update for modular process engineering.",
+            language="en",
+            category="industry",
+        )
+        score, personas = ollama_filter.keyword_score(article)
+        self.assertEqual(score, 0)
+        self.assertEqual(personas, [])
+
+    def test_downweight_noise_keyword_reduces_score_not_hard_block(self):
+        base_article = Article(
+            title="Industrial AI sequence optimization for factory PLC line",
+            url="https://example.com/base",
+            source="s",
+            content_snippet="Predictive maintenance and machine vision in production line.",
+            language="en",
+            category="industry",
+        )
+        noisy_article = Article(
+            title="How to make a sequence in EAE v25.0 | Schneider Electric",
+            url="https://example.com/noisy",
+            source="s",
+            content_snippet="Industrial AI sequence optimization for factory PLC line.",
+            language="en",
+            category="industry",
+        )
+        base_score, _ = ollama_filter.keyword_score(base_article)
+        noisy_score, _ = ollama_filter.keyword_score(noisy_article)
+        self.assertLess(noisy_score, base_score)
+        self.assertGreaterEqual(noisy_score, 0)
+
 if __name__ == '__main__':
     unittest.main()

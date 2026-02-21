@@ -7,6 +7,8 @@
 import logging
 import os
 import re
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from openai import OpenAI
@@ -18,6 +20,9 @@ from config import (
     TECHNICIAN_KEYWORDS,
     INDUSTRY_CONTEXT_KEYWORDS,
     NEGATIVE_THEORY_ONLY_KEYWORDS,
+    HARD_EXCLUDE_NOISE_KEYWORDS,
+    DOWNWEIGHT_NOISE_KEYWORDS,
+    TRUSTED_SOURCE_DOMAINS,
     LLM_API_KEY,
     LLM_BASE_URL,
     LLM_MODEL,
@@ -30,6 +35,13 @@ _relevance_client: OpenAI | None = None
 MIN_RELEVANT_ARTICLES = max(0, int(os.getenv("MIN_RELEVANT_ARTICLES", "5")))
 IS_LOCAL = API_PROVIDER == "Local_Ollama"
 MAX_CONCURRENCY = max(1, int(os.getenv("KIMI_MAX_CONCURRENCY", "1" if IS_LOCAL else "4")))
+FILTER_MAX_RETRIES = int(os.getenv("KIMI_FILTER_MAX_RETRIES", "1" if IS_LOCAL else "0"))
+FILTER_TIMEOUT_SECONDS = float(os.getenv("KIMI_FILTER_TIMEOUT_SECONDS", "20"))
+FILTER_MIN_REQUEST_INTERVAL_SECONDS = float(os.getenv("KIMI_FILTER_MIN_REQUEST_INTERVAL_SECONDS", "2.0" if not IS_LOCAL else "0.2"))
+FILTER_RATE_LIMIT_BACKOFF_SECONDS = float(os.getenv("KIMI_FILTER_RATE_LIMIT_BACKOFF_SECONDS", "10"))
+FILTER_RATE_LIMIT_MAX_RETRIES = int(os.getenv("KIMI_FILTER_RATE_LIMIT_MAX_RETRIES", "1"))
+_filter_rate_lock = threading.Lock()
+_filter_last_request_ts = 0.0
 
 # 宽进：补充更通用的工业 AI 主题词，覆盖标题/摘要中的常见表达
 BROAD_KEYWORDS = [
@@ -77,10 +89,19 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
     - Technician keywords: +3 (Tags: Technician)
     - High-priority keywords: +2 (Tags: Student)
     - Medium-priority keywords: +1
+    - Trusted source domain: score boosted to >= RELEVANCE_THRESHOLD
     """
     text = _normalize_text(f"{article.title} {article.content_snippet}")
     score = 0
     personas = set()
+
+    # --- 域名白名单检查 (Trusted Source Domain Boost) ---
+    # 命中受信域名的文章直接获得最低通过分数（不硬性绕过负向词/HARD_EXCLUDE，只保底）。
+    article_url = (article.url or "").lower()
+    is_trusted_domain = any(domain in article_url for domain in TRUSTED_SOURCE_DOMAINS)
+    if is_trusted_domain:
+        score = RELEVANCE_THRESHOLD  # 保底通过阈值；负向词仍可将其降回 0
+        logger.debug("  trusted domain boost -> score=%s: %s", score, article.title[:60])
 
     for kw in TECHNICIAN_KEYWORDS:
         if _contains_keyword(text, kw):
@@ -106,6 +127,18 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
                 score += 1
 
     # 负向理论/招聘/营销词降噪规则：
+    # 0) 命中强制排除词 -> 直接过滤（如 livestream/webinar/event recap）
+    has_hard_exclude = any(_contains_keyword(text, kw) for kw in HARD_EXCLUDE_NOISE_KEYWORDS)
+    if has_hard_exclude:
+        logger.debug(f"  hard-exclude noise filtered: {article.title[:80]}")
+        return 0, []
+
+    # 降权而非过滤：针对用户指定的“希望降权”的内容模式
+    has_downweight_noise = any(_contains_keyword(text, kw) for kw in DOWNWEIGHT_NOISE_KEYWORDS)
+    if has_downweight_noise:
+        score = max(0, score - 2)
+        logger.debug(f"  downweighted noisy pattern: {article.title[:80]}")
+
     # 1) 命中负向词且无工业场景语境 -> 直接过滤（score=0）
     # 2) 命中负向词且有工业场景语境 -> 允许但降权（至少保留 1 分）
     has_negative_theory = any(_contains_keyword(text, kw) for kw in NEGATIVE_THEORY_ONLY_KEYWORDS)
@@ -117,9 +150,16 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
         score = max(1, score - 2)
         logger.debug(f"  theory-only noise downweighted with industry context: {article.title[:80]}")
 
+    # YouTube Shorts: soft downweight (-1) for borderline items.
+    # Shorts with strong keyword hit (score >= threshold+1) pass unchanged.
+    is_youtube_source = "youtube" in (article.source or "").lower() or "youtu" in (article.url or "").lower()
+    is_shorts = "/shorts/" in (article.url or "")
+    if is_shorts and score < RELEVANCE_THRESHOLD + 1:
+        score = max(0, score - 1)
+        logger.debug("  youtube shorts downweighted (-1): %s", article.title[:80])
+
     # YouTube low-traction downweight: if views < 10, reduce score.
     # This is a soft penalty (not hard block) to keep potential niche high-quality items.
-    is_youtube_source = "youtube" in (article.source or "").lower() or "youtu" in (article.url or "").lower()
     if is_youtube_source and article.video_views is not None and article.video_views < 10:
         score = max(0, score - 2)
         logger.debug(
@@ -147,7 +187,11 @@ def llm_relevance_check(article: Article) -> bool | None:
     try:
         global _relevance_client
         if _relevance_client is None:
-            _relevance_client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
+            _relevance_client = OpenAI(
+                api_key=LLM_API_KEY,
+                base_url=LLM_BASE_URL,
+                max_retries=FILTER_MAX_RETRIES,
+            )
         client = _relevance_client
 
         prompt = (
@@ -167,23 +211,47 @@ def llm_relevance_check(article: Article) -> bool | None:
             "Reply with only YES or NO."
         )
 
-        response = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a strict relevance filter for industrial AI news. "
-                        "Require explicit AI signal and target-domain fit. "
-                        "Reply with only YES or NO."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.1,
-            max_tokens=5,
-            timeout=20,
-        )
+        for attempt in range(FILTER_RATE_LIMIT_MAX_RETRIES + 1):
+            global _filter_last_request_ts
+            with _filter_rate_lock:
+                now = time.monotonic()
+                wait_s = FILTER_MIN_REQUEST_INTERVAL_SECONDS - (now - _filter_last_request_ts)
+                if wait_s > 0:
+                    time.sleep(wait_s)
+                _filter_last_request_ts = time.monotonic()
+
+            try:
+                response = client.chat.completions.create(
+                    model=LLM_MODEL,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a strict relevance filter for industrial AI news. "
+                                "Require explicit AI signal and target-domain fit. "
+                                "Reply with only YES or NO."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.1,
+                    max_tokens=5,
+                    timeout=FILTER_TIMEOUT_SECONDS,
+                )
+                break
+            except Exception as e:
+                msg = str(e).lower()
+                if ("429" in msg or "too many requests" in msg) and attempt < FILTER_RATE_LIMIT_MAX_RETRIES:
+                    backoff = FILTER_RATE_LIMIT_BACKOFF_SECONDS * (2 ** attempt)
+                    logger.warning(
+                        "  LLM filter 429, backoff %.1fs then retry (%s/%s)",
+                        backoff,
+                        attempt + 1,
+                        FILTER_RATE_LIMIT_MAX_RETRIES,
+                    )
+                    time.sleep(backoff)
+                    continue
+                raise
 
         answer = (response.choices[0].message.content or "").strip().upper()
         # 容错解析：支持 YES/JA/是 的简短变体；明确 NO/NEIN/否 则拒绝。
@@ -257,12 +325,15 @@ def filter_articles(articles: list[Article], skip_llm: bool = False) -> list[Art
         logger.info(f"[FILTER] {len(result)}/{len(scored)} passed LLM Cloud validation")
 
     # Ensure a minimum daily volume for digest stability.
+    # Only pull in candidates with score >= 2 to avoid low-quality fallback content.
     if MIN_RELEVANT_ARTICLES and len(result) < MIN_RELEVANT_ARTICLES:
         existing_keys = {
             f"{(a.url or '').strip()}|{(a.title or '').strip().lower()}"
             for a in result
         }
         for candidate in sorted(scored, key=lambda a: a.relevance_score, reverse=True):
+            if candidate.relevance_score < 2:
+                continue  # Skip low-scored items even in fallback
             key = f"{(candidate.url or '').strip()}|{(candidate.title or '').strip().lower()}"
             if key in existing_keys:
                 continue
@@ -271,7 +342,7 @@ def filter_articles(articles: list[Article], skip_llm: bool = False) -> list[Art
             if len(result) >= MIN_RELEVANT_ARTICLES:
                 break
         logger.info(
-            "[FILTER] Applied minimum-volume fallback: now %s items (target=%s)",
+            "[FILTER] Applied minimum-volume fallback: now %s items (target=%s, min_score=2)",
             len(result),
             MIN_RELEVANT_ARTICLES,
         )
