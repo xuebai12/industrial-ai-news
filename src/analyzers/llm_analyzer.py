@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 
@@ -18,11 +19,13 @@ logger = logging.getLogger(__name__)
 # Initialize client (OpenAI-compatible)
 _client: OpenAI | None = None
 
-# Local models need more tokens, but should run with low randomness for stable JSON.
+# Local models need stable JSON and lower per-request load to avoid timeout storms.
 IS_LOCAL = API_PROVIDER == "Local_Ollama"
-MAX_TOKENS = int(os.getenv("KIMI_MAX_TOKENS", "2600" if IS_LOCAL else "800"))
-REQUEST_TIMEOUT_SECONDS = float(os.getenv("KIMI_TIMEOUT_SECONDS", "45")) # Kept env var name for compatibility or should query user? Let's use generic default
+MAX_TOKENS = int(os.getenv("KIMI_MAX_TOKENS", "1400" if IS_LOCAL else "800"))
+REQUEST_TIMEOUT_SECONDS = float(os.getenv("KIMI_TIMEOUT_SECONDS", "60"))
 MAX_CONCURRENCY = max(1, int(os.getenv("KIMI_MAX_CONCURRENCY", "1" if IS_LOCAL else "4")))
+# For local inference, keep retries conservative to avoid long backlogs.
+LOCAL_ENABLE_FINAL_RETRY = os.getenv("LOCAL_ENABLE_FINAL_RETRY", "false").lower() == "true"
 
 def _get_client() -> OpenAI:
     """Lazy-init API client (延迟初始化 API 客户端)."""
@@ -216,11 +219,12 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
 
     client = _get_client()
 
+    snippet_limit = 450 if IS_LOCAL else 800
     user_content = (
         f"标题: {article.title}\n"
         f"来源: {article.source}\n"
         f"链接: {article.url}\n"
-        f"内容片段:\n{article.content_snippet[:800]}\n\n"
+        f"内容片段:\n{article.content_snippet[:snippet_limit]}\n\n"
         f"请只输出JSON。"
     )
 
@@ -249,8 +253,8 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
         )
         data = _call_and_parse(client, minimal_prompt, minimal_user_content)
 
-    # Final retry for local model with full domain prompt (may recover richer outputs)
-    if data is None and IS_LOCAL:
+    # Optional final retry for local model. Disabled by default to prevent timeout storms.
+    if data is None and IS_LOCAL and LOCAL_ENABLE_FINAL_RETRY:
         logger.warning(f"[{API_PROVIDER}] Final retry with full prompt for '{article.title[:40]}'")
         data = _call_and_parse(client, SYSTEM_PROMPT, user_content)
 
@@ -352,6 +356,11 @@ def _call_and_parse(client: OpenAI, system_prompt: str, user_content: str) -> di
 
     except Exception as e:
         logger.error(f"[{API_PROVIDER}] API call error: {e}")
+        # Local Ollama can return 429 when previous timed-out requests are still running.
+        # Brief backoff reduces retry pressure and queue buildup.
+        msg = str(e).lower()
+        if IS_LOCAL and ("429" in msg or "too many concurrent requests" in msg):
+            time.sleep(2.0)
         return None
 
 

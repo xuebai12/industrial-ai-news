@@ -76,6 +76,12 @@ EMAIL_TEMPLATE = Template(
   .source { margin-top: 10px; font-size: 13px; color: #344054; }
   .source a { color: #175cd3; text-decoration: none; }
   .footer { text-align: center; padding: 16px 8px 8px; font-size: 12px; color: #98a2b3; }
+  .extra { background: #fff; border: 1px solid #dbe3ee; border-radius: 12px; padding: 14px; margin: 12px 0; }
+  .extra h2 { margin: 0 0 10px; font-size: 15px; color: #0b3c7f; }
+  .extra table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .extra th, .extra td { border-bottom: 1px solid #e6ebf2; padding: 6px 4px; text-align: left; vertical-align: top; }
+  .extra th { color: #475467; font-weight: 700; }
+  .extra a { color: #175cd3; text-decoration: none; }
 </style>
 </head>
 <body>
@@ -124,6 +130,34 @@ EMAIL_TEMPLATE = Template(
   </div>
   {% endfor %}
 
+  {% if pending_articles %}
+  <div class="extra">
+    <h2>Weitere Relevante Artikel (nicht analysiert)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Titel</th>
+          <th>Quelle</th>
+          <th>Score</th>
+          <th>Link</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in pending_articles %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ item.title }}</td>
+          <td>{{ item.source }}</td>
+          <td>{{ item.score }}</td>
+          <td><a href="{{ item.url }}">Open</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
   <div class="footer">
     {{ labels.footer }}
   </div>
@@ -159,7 +193,10 @@ def _pick_secondary_summary(article: AnalyzedArticle, lang: str) -> str:
 
 
 def render_digest(
-    articles: list[AnalyzedArticle], today: str | None = None, profile: object | None = None
+    articles: list[AnalyzedArticle],
+    today: str | None = None,
+    profile: object | None = None,
+    pending_articles: list[dict] | None = None,
 ) -> str:
     """Render the daily digest as HTML (渲染 HTML 摘要)."""
     if today is None:
@@ -200,12 +237,15 @@ def render_digest(
         today=today,
         articles=rendered_articles,
         top_articles=top_articles,
+        pending_articles=pending_articles or [],
         profile=profile,
         labels=labels,
     )
 
 
-def render_digest_text(articles: list[AnalyzedArticle], today: str | None = None) -> str:
+def render_digest_text(
+    articles: list[AnalyzedArticle], today: str | None = None, pending_articles: list[dict] | None = None
+) -> str:
     """Render the daily digest as plain text (渲染纯文本摘要 - 用于 dry-run 或邮件备选部分)."""
     if today is None:
         today = date.today().strftime("%Y-%m-%d")
@@ -229,10 +269,24 @@ def render_digest_text(articles: list[AnalyzedArticle], today: str | None = None
         lines.append(f"- Source: {article.source_name} | {article.source_url}")
         lines.append("")
 
+    if pending_articles:
+        lines.append("More relevant articles (not analyzed):")
+        for idx, item in enumerate(pending_articles, start=1):
+            lines.append(
+                f"{idx}. {_clip(item.get('title', 'N/A'), 100)} | {item.get('source', 'N/A')} "
+                f"| score={item.get('score', 0)} | {item.get('url', '')}"
+            )
+        lines.append("")
+
     return "\n".join(lines)
 
 
-def send_email(articles: list[AnalyzedArticle], today: str | None = None, profile: object | None = None) -> bool:
+def send_email(
+    articles: list[AnalyzedArticle],
+    today: str | None = None,
+    profile: object | None = None,
+    pending_articles: list[dict] | None = None,
+) -> bool:
     """Send the daily digest email via SMTP (发送邮件)."""
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, EMAIL_TO]):
         logger.warning("[EMAIL] SMTP not configured, skipping email delivery")
@@ -241,7 +295,7 @@ def send_email(articles: list[AnalyzedArticle], today: str | None = None, profil
     if today is None:
         today = date.today().strftime("%Y-%m-%d")
 
-    html_content = render_digest(articles, today, profile)
+    html_content = render_digest(articles, today, profile, pending_articles=pending_articles)
 
     msg = MIMEMultipart("alternative")
     if profile and hasattr(profile, "persona"):
@@ -260,7 +314,7 @@ def send_email(articles: list[AnalyzedArticle], today: str | None = None, profil
     recipient = profile.email if profile and hasattr(profile, "email") else EMAIL_TO
     msg["To"] = recipient
 
-    text_content = render_digest_text(articles, today)
+    text_content = render_digest_text(articles, today, pending_articles=pending_articles)
     msg.attach(MIMEText(text_content, "plain", "utf-8"))
     msg.attach(MIMEText(html_content, "html", "utf-8"))
 

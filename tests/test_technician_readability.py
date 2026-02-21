@@ -52,6 +52,24 @@ class TestTechnicianReadability(unittest.TestCase):
 
         self.assertIn("Student-only simple explanation text.", html)
 
+    def test_pending_articles_table_is_rendered(self) -> None:
+        article = _article()
+        profile = SimpleNamespace(language="de", persona="technician")
+        pending = [
+            {
+                "title": "Nicht analysierter Artikel 1",
+                "source": "Quelle A",
+                "score": 5,
+                "url": "https://example.com/pending-1",
+            }
+        ]
+
+        html = render_digest([article], today="2026-02-20", profile=profile, pending_articles=pending)
+
+        self.assertIn("Weitere Relevante Artikel (nicht analysiert)", html)
+        self.assertIn("Nicht analysierter Artikel 1", html)
+        self.assertIn("score", html.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

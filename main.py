@@ -141,6 +141,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="每个源最大抓取文章数 (Default: 20)",
     )
     parser.add_argument(
+        "--top-n",
+        type=int,
+        default=20,
+        help="按排序仅保留前 N 篇进入分析与投递 (Default: 20, <=0 表示不限制)",
+    )
+    parser.add_argument(
         "--mock",
         action="store_true",
         help="使用模拟数据进行 LLM 分析 (Use mock data for LLM analysis)",
@@ -185,6 +191,50 @@ def _dedupe_articles(articles: list) -> list:
         seen.add(key)
         deduped.append(article)
     return deduped
+
+
+def _source_priority_map() -> dict[str, int]:
+    """Build source priority lookup from configured sources."""
+    return {source.name: source.priority for source in DATA_SOURCES}
+
+
+def _rank_articles_for_delivery(articles: list, top_n: int) -> list:
+    """
+    Rank candidate articles and keep top N.
+    排序规则: relevance_score desc -> source priority desc -> published_date desc
+    """
+    priorities = _source_priority_map()
+
+    def _sort_key(article: object) -> tuple:
+        relevance = int(getattr(article, "relevance_score", 0) or 0)
+        source_name = getattr(article, "source", "") or getattr(article, "source_name", "")
+        source_priority = int(priorities.get(source_name, 1))
+        published_date = getattr(article, "published_date", None)
+        published_ts = published_date.timestamp() if published_date else 0.0
+        title = getattr(article, "title", "") or getattr(article, "title_en", "")
+        return (relevance, source_priority, published_ts, str(title))
+
+    ranked = sorted(articles, key=_sort_key, reverse=True)
+    if top_n <= 0:
+        return ranked
+    return ranked[:top_n]
+
+
+def _build_pending_articles_table(articles: list, start: int, limit: int = 20) -> list[dict]:
+    """Build compact rows for the 'not analyzed yet' table in email."""
+    rows: list[dict] = []
+    if limit <= 0 or start >= len(articles):
+        return rows
+    for article in articles[start : start + limit]:
+        rows.append(
+            {
+                "title": getattr(article, "title", "")[:140],
+                "source": getattr(article, "source", ""),
+                "score": int(getattr(article, "relevance_score", 0) or 0),
+                "url": getattr(article, "url", ""),
+            }
+        )
+    return rows
 
 
 def _append_failure(
@@ -242,13 +292,14 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
     logger.info("=" * 60)
     logger.info("Industrial AI Intelligence Pipeline | date=%s run_id=%s", today, run_id)
     logger.info(
-        "options dry_run=%s output=%s skip_dynamic=%s skip_llm_filter=%s mock=%s strict=%s",
+        "options dry_run=%s output=%s skip_dynamic=%s skip_llm_filter=%s mock=%s strict=%s top_n=%s",
         args.dry_run,
         args.output,
         args.skip_dynamic,
         args.skip_llm_filter,
         args.mock,
         args.strict,
+        args.top_n,
     )
 
     # 1. 验证配置 (Validate Config)
@@ -339,11 +390,30 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         result.duration_seconds = round(time.perf_counter() - started, 3)
         return result
 
+    # 4.5 排序并截断 (Rank & cap before analysis to control volume and latency)
+    sorted_relevant_articles = _rank_articles_for_delivery(relevant_articles, top_n=0)
+    ranked_articles = (
+        sorted_relevant_articles[: args.top_n] if args.top_n > 0 else sorted_relevant_articles
+    )
+    pending_articles = (
+        _build_pending_articles_table(sorted_relevant_articles, start=max(args.top_n, 0), limit=20)
+        if args.top_n > 0
+        else []
+    )
+    if args.top_n > 0:
+        logger.info(
+            "[RANK] selected top %s/%s relevant articles for analysis",
+            len(ranked_articles),
+            len(relevant_articles),
+        )
+    else:
+        logger.info("[RANK] top_n disabled, keeping all %s relevant articles", len(ranked_articles))
+
     # 5. 分析 (Analysis - LLM)
     try:
         from src.analyzers.llm_analyzer import analyze_articles
 
-        analyzed = analyze_articles(relevant_articles, mock=args.mock)
+        analyzed = analyze_articles(ranked_articles, mock=args.mock)
     except Exception as exc:
         _append_failure(result, "analyze", "LLM", str(exc))
         result.exit_reason = "analysis stage failed"
@@ -366,7 +436,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         )
 
         if args.dry_run:
-            print("\n" + render_digest_text(analyzed, today))
+            print("\n" + render_digest_text(analyzed, today, pending_articles=pending_articles))
             logger.info("[DELIVERY] Dry run output printed")
         else:
             if args.output in ("email", "both"):
@@ -389,7 +459,12 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
                         continue
 
                     logger.info(f"[DELIVERY] Sending {len(profile_articles)} articles to '{profile.name}'")
-                    success = send_email(profile_articles, today, profile=profile)
+                    success = send_email(
+                        profile_articles,
+                        today,
+                        profile=profile,
+                        pending_articles=pending_articles,
+                    )
 
                     if args.strict and not success:
                          logger.error(f"[DELIVERY] Failed to send email to '{profile.name}'")
