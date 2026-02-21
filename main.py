@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from config import DATA_SOURCES, RECIPIENT_PROFILES, validate_config
+from config import DATA_SOURCES, RECIPIENT_PROFILES, validate_config, MAX_ARTICLE_AGE_HOURS
 
 logger = logging.getLogger(__name__)
 YOUTUBE_MAX_ITEMS = int(os.getenv("YOUTUBE_MAX_ITEMS", "5"))
@@ -226,6 +226,83 @@ def _rank_articles_for_delivery(articles: list, top_n: int) -> list:
     return ranked[:top_n]
 
 
+# 分析配额限制 (Analysis slot diversity caps)
+ANALYSIS_MAX_YOUTUBE = int(os.getenv("ANALYSIS_MAX_YOUTUBE", "5"))  # YouTube 最多占位数
+
+
+def _apply_diversity_caps(articles: list) -> list:
+    """
+    在进入分析前对候选文章应用多样性配额规则 (Apply diversity caps before analysis).
+
+    Rules (按优先级顺序，先排序后截断):
+    1. 每个来源 (source) 最多保留 1 篇，取相关性分数最高的那篇。
+    2. YouTube 来源文章总占位不超过 ANALYSIS_MAX_YOUTUBE 篇。
+
+    原始顺序（按 relevance_score 降序）在截断后保持不变。
+    """
+    # ── Rule 1: one article per source (highest-score wins) ──────────────
+    seen_sources: set[str] = set()
+    one_per_source: list = []
+    # Articles arrive sorted by score descending; first occurrence = highest score.
+    for article in articles:
+        source = (
+            getattr(article, "source", None)
+            or getattr(article, "source_name", None)
+            or ""
+        ).strip()
+        source_key = source.lower() if source else id(article)  # fallback: treat as unique
+        if source_key in seen_sources:
+            logger.debug(
+                "[DIVERSITY] Dropped duplicate source '%s': %s",
+                source,
+                getattr(article, "title", "")[:70],
+            )
+            continue
+        seen_sources.add(source_key)
+        one_per_source.append(article)
+
+    dropped_source = len(articles) - len(one_per_source)
+    if dropped_source:
+        logger.info(
+            "[DIVERSITY] one-per-source rule: kept %s/%s (dropped %s duplicates)",
+            len(one_per_source),
+            len(articles),
+            dropped_source,
+        )
+
+    # ── Rule 2: cap YouTube slots ─────────────────────────────────────────
+    youtube_count = 0
+    capped: list = []
+    for article in one_per_source:
+        is_youtube = (
+            "youtube" in (getattr(article, "source", "") or "").lower()
+            or "youtu" in (getattr(article, "url", "") or "").lower()
+        )
+        if is_youtube:
+            if youtube_count >= ANALYSIS_MAX_YOUTUBE:
+                logger.debug(
+                    "[DIVERSITY] Dropped excess YouTube (%s/%s cap): %s",
+                    youtube_count,
+                    ANALYSIS_MAX_YOUTUBE,
+                    getattr(article, "title", "")[:70],
+                )
+                continue
+            youtube_count += 1
+        capped.append(article)
+
+    dropped_yt = len(one_per_source) - len(capped)
+    if dropped_yt:
+        logger.info(
+            "[DIVERSITY] YouTube cap (%s): kept %s/%s (dropped %s)",
+            ANALYSIS_MAX_YOUTUBE,
+            len(capped),
+            len(one_per_source),
+            dropped_yt,
+        )
+
+    return capped
+
+
 def _build_pending_articles_table(articles: list, start: int, limit: int = 20) -> list[dict]:
     """Build compact rows for the 'not analyzed yet' table in email."""
     rows: list[dict] = []
@@ -335,6 +412,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
                     language=source.language,
                     category=source.category,
                     max_items=source_max_items,
+                    max_age_hours=MAX_ARTICLE_AGE_HOURS,
                 )
                 all_articles.extend(articles)
             except Exception as exc:
@@ -416,6 +494,10 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         )
     else:
         logger.info("[RANK] top_n disabled, keeping all %s relevant articles", len(ranked_articles))
+
+    # 4.6 多样性配额（每源最多1篇 + YouTube 上限）
+    ranked_articles = _apply_diversity_caps(ranked_articles)
+    logger.info("[DIVERSITY] After caps: %s articles entering analysis", len(ranked_articles))
 
     # 5. 分析 (Analysis - LLM)
     try:

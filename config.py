@@ -72,6 +72,9 @@ MAX_ARTICLES_PER_SOURCE = int(_max_articles) if _max_articles else 20  # 每个�
 _relevance_threshold = os.getenv("RELEVANCE_THRESHOLD")
 RELEVANCE_THRESHOLD = int(_relevance_threshold) if _relevance_threshold else 1  # 关键词相关性阈值
 
+_max_age_hours = os.getenv("MAX_ARTICLE_AGE_HOURS")
+MAX_ARTICLE_AGE_HOURS = int(_max_age_hours) if _max_age_hours else 48  # 文章最大时效（小时），默认 48h
+
 
 # --- Keyword Scoring Rules (Knowledge Graph) ---
 # --- 关键词评分规则 (筛选逻辑) ---
@@ -113,25 +116,90 @@ HIGH_PRIORITY_KEYWORDS = [
 
 # 技师视角高优先级关键词 (+3 分)
 TECHNICIAN_KEYWORDS = [
-    "Instandhaltung",          # Maintenance
-    "Anlagenverfügbarkeit",    # Plant availability
-    "SPS",                     # PLC (German)
-    "PLC",
-    "TIA Portal",
-    "OEE",                     # Overall Equipment Effectiveness
-    "Sicherheit",              # Safety
-    "Störungsbehebung",        # Troubleshooting
-    "Wartung",                 # Servicing
-    "Inbetriebnahme",          # Commissioning
-    "Fernwartung",             # Remote maintenance
-    "SCADA",
-    "MES",
-    "HMI",
-    "OPC UA",
+    # --- DE: 控制系统 / Steuerungstechnik ---
+    "SPS",                         # Programmable Logic Controller (German abbreviation)
+    "TIA Portal",                  # Siemens engineering software
+    "Inbetriebnahme",              # Commissioning
+    "Virtuelle Inbetriebnahme",    # Virtual commissioning (overlaps HIGH_PRIORITY but critical here)
+    "Steuerungstechnik",           # Control engineering
+
+    # --- EN: Control Systems ---
+    "PLC",                         # Programmable Logic Controller
+    "DCS",                         # Distributed Control System
+    "PAC",                         # Programmable Automation Controller
+    "Motion Control",
+    "Ladder Logic",
+    "Commissioning",
+    "Virtual Commissioning",
+    "Field Service",               # On-site engineering support
+
+    # --- DE: 维护与运维 / Instandhaltung & Betrieb ---
+    "Instandhaltung",              # Maintenance (general)
+    "Wartung",                     # Servicing / scheduled maintenance
+    "Anlagenverfügbarkeit",        # Plant / asset availability
+    "Störungsbehebung",            # Troubleshooting / fault clearance
+    "Fernwartung",                 # Remote maintenance
+    "Sicherheit",                  # Safety / security (industrial context)
+
+    # --- EN: Maintenance & Operations ---
+    "Maintenance Operations",
+    "Preventive Maintenance",
+    "Corrective Maintenance",
+    "Troubleshooting",
+    "Remote Maintenance",
+    "Asset Availability",
+    "Downtime Reduction",
+    "Mean Time Between Failures",  # MTBF
+    "Mean Time To Repair",         # MTTR
+
+    # --- DE/EN: 效率指标 / KPIs ---
+    "OEE",                         # Overall Equipment Effectiveness
+    "Shopfloor",                   # Shop-floor / production floor
+
+    # --- EN: Shopfloor & Efficiency ---
+    "Shopfloor Control",
+    "Overall Equipment Effectiveness",
+    "Production Efficiency",
+    "Cycle Time Reduction",
+    "First Pass Yield",
+
+    # --- DE/EN: 工业通信 / Industriekommunikation ---
+    "OPC UA",                      # Industrial communication standard
+    "SCADA",                       # Supervisory Control and Data Acquisition
+    "MES",                         # Manufacturing Execution System
+    "HMI",                         # Human-Machine Interface
+    "Profinet",
+    "EtherCAT",
+    "IO-Link",
+
+    # --- EN: Industrial Networking ---
+    "Industrial Ethernet",
+    "Time-Sensitive Networking",   # TSN
+    "Edge Computing",
+    "OT Network",                  # Operational Technology network
+
+    # --- EN: IIoT & Diagnostics ---
     "Anomaly Detection",
-    "collaborative robot",     # Cobot applications (e.g. Universal Robots videos)
-    "cobot",                   # Shorthand for collaborative robot
-    "AI chip",                 # AI chip supply/demand news (high signal for industrial AI readers)
+    "Condition Monitoring",        # Also in MEDIUM but high-signal for technicians
+    "Vibration Analysis",
+    "Thermal Imaging",
+    "Motor Diagnostics",
+    "Sensor Fusion",
+    "IIoT Gateway",
+
+    # --- EN: OT Cybersecurity (critical for field engineers) ---
+    "OT Security",
+    "ICS Security",
+    "OT/IT Convergence",
+
+    # --- EN: Robotics (field-level) ---
+    "collaborative robot",         # Cobot applications (e.g. Universal Robots videos)
+    "cobot",                       # Shorthand for collaborative robot
+    "Robot Integration",
+    "End-of-Arm Tooling",          # EOAT – gripper/tooling topic
+
+    # --- EN: AI Hardware (supply signal for industrial readers) ---
+    "AI chip",
 ]
 
 # 中优先级关键词 (+1 分)
@@ -179,184 +247,305 @@ MEDIUM_PRIORITY_KEYWORDS = [
     "Universal Robots",        # UR brand (cobot manufacturer) - like "Siemens"
 ]
 
-# 负向词：纯理论/招聘培训/营销活动类噪音
-NEGATIVE_THEORY_ONLY_KEYWORDS = [
-    # Pure theory / benchmark-heavy
-    "theorem",
-    "proof",
-    "lemma",
-    "corollary",
-    "axiom",
-    "hypergraph",
-    "graph neural network benchmark",
-    "reasoning benchmark",
-    "formal verification",
-    "formal logic",
-    "meta-learning benchmark",
-    "synthetic dataset",
-    "toy dataset",
-    "ablation study only",
-    "state-of-the-art on",
-    "leaderboard",
-    "openreview",
-    "arxiv preprint",
-    "multimodal reasoning",
-    "chain-of-thought benchmark",
-    "spatio-temporal dual-stage",
-    "corridor traffic signal control",
-    "convex optimization framework",
-    "variational bound",
-    # Hiring / training
-    "job",
-    "jobs",
-    "hiring",
-    "career",
-    "careers",
-    "internship",
-    "vacancy",
-    "recruiting",
-    "apply now",
-    "course",
-    "training",
-    "bootcamp",
-    "certification",
-    "workshop",
-    "masterclass",
-    "tutorial",
-    "how to become",
-    "stellenangebot",
-    "karriere",
-    "bewerben",
-    "ausbildung",
-    "schulung",
-    "kurs",
-    # Event / recap
-    "webinar",
-    "register now",
-    "event recap",
-    "highlights",
-    "keynote recap",
-    "conference recap",
-    "expo highlights",
-    "livestream",
-    "live stream",
-    "podcast episode",
-    "summit highlights",
-    "meet us at",
-    "join us at",
-    "save the date",
-    "veranstaltung",
-    "rückblick",
-    "messe",
-    "live-übertragung",
-    # Marketing / PR
-    "press release",
-    "brand campaign",
-    "award",
-    "winner",
-    "partnership announcement",
-    "sponsored",
-    "advertorial",
-    "promotion",
-    "promo",
-    "limited offer",
-    "new brochure",
-    "customer story",
-    "success story",
-    "testimonial",
-    "pressemitteilung",
-    "auszeichnung",
-    "partnerschaft",
-    "werbung",
+# --- 领域专项关键词评分 (Domain-Specific Keyword Scoring) ---
+# ------------------------------------------------------------
+# 6 大垂直领域双语关键词，按重要性分 +3 / +2 / +1 三档。
+# 由评分引擎在关键词匹配阶段加权使用。
+# Bilingual (DE + EN) domain keywords, tiered by signal strength.
+DOMAIN_KEYWORDS: dict[str, dict[str, list[str]]] = {
+
+    # ── 1. Factory & Production (智能工厂与生产) ───────────────────────
+    # 侧重：AI 驱动的工艺优化、仿真与自适应控制
+    "factory": {
+        "+3": [
+            # EN
+            "Industrial GenAI",
+            "LLM for PLC",
+            "VIBN AI",
+            # DE
+            "Industrielle GenAI",
+            "KI für SPS",
+            "VIBN KI",                 # 虚拟调试 AI / Virtual Commissioning AI
+        ],
+        "+2": [
+            # EN
+            "Predictive Quality",
+            "Digital Twin AI",
+            "OEE Optimization",
+            # DE
+            "Digitaler Zwilling KI",
+            "OEE-Optimierung",
+        ],
+        "+1": [
+            # EN
+            "Smart Factory",
+            "Industry 4.0",
+            "Manufacturing AI",
+            # DE
+            "Industrie 4.0",
+            "KI in der Produktion",
+        ],
+    },
+
+    # ── 2. Robotics (机器人) ──────────────────────────────────────────
+    # 侧重：协作机器人、机器视觉与运动规划
+    "robotics": {
+        "+3": [
+            # EN
+            "Robot Transformer",
+            "RT-1",
+            "RT-2",
+            "Vision-Language-Action",
+            "VLA",
+            # DE
+            "Robot-Transformer",
+            "Vision-Language-Action (VLA)",
+        ],
+        "+2": [
+            # EN
+            "Cobot AI",
+            "Path Planning AI",
+            "Semantic Grasping",
+            # DE
+            "Cobot-KI",
+            "Bahnplanung KI",
+            "Semantisches Greifen",
+        ],
+        "+1": [
+            # EN
+            "Autonomous Mobile Robot",
+            "AMR",
+            "Machine Vision",
+            # DE
+            "Autonomer Mobiler Roboter",
+            "Bildverarbeitung",
+        ],
+    },
+
+    # ── 3. Automotive (汽车工业) ──────────────────────────────────────
+    # 侧重：自动驾驶算法、电池 AI 研发与总装优化
+    "automotive": {
+        "+3": [
+            # EN
+            "End-to-End Autonomous Driving",
+            "Battery Health AI",
+            # DE
+            "End-to-End Autonomes Fahren",
+            "Batterie-KI",
+        ],
+        "+2": [
+            # EN
+            "Fleet Learning",
+            "ADAS AI",
+            "Vehicle-to-Everything",
+            "V2X AI",
+            # DE
+            "Flottenlernen",
+            "ADAS-KI",
+            "V2X-KI",
+        ],
+        "+1": [
+            # EN
+            "Electric Vehicle",
+            "EV",
+            "Connected Car",
+            "Automotive AI",
+            # DE
+            "Elektrofahrzeuge",
+            "Vernetztes Auto",
+            "Automobil-KI",
+        ],
+    },
+
+    # ── 4. Supply Chain & Logistics (供应链与物流) ────────────────────
+    # 侧重：需求预测、多智能体协同与动态库存优化
+    "supply_chain": {
+        "+3": [
+            # EN
+            "Multi-Agent Reinforcement Learning",
+            "MARL",
+            "Demand Sensing",
+            # DE
+            "Multi-Agenten-RL",
+        ],
+        "+2": [
+            # EN
+            "Dynamic Route Optimization",
+            "AI Inventory Management",
+            # DE
+            "Dynamische Routenoptimierung",
+            "KI-Bestandsmanagement",
+        ],
+        "+1": [
+            # EN
+            "Logistics AI",
+            "Supply Chain Transparency",
+            "Warehouse AI",
+            # DE
+            "Logistik-KI",
+            "Lieferkettentransparenz",
+            "Lager-KI",
+        ],
+    },
+
+    # ── 5. Energy (能源管理) ──────────────────────────────────────────
+    # 侧重：智能电网预测、工业用能优化
+    "energy": {
+        "+3": [
+            # EN
+            "Smart Grid Forecasting",
+            "Virtual Power Plant AI",
+            # DE
+            "Smart Grid Prognose",
+            "Virtuelles Kraftwerk KI",
+        ],
+        "+2": [
+            # EN
+            "Energy Demand Prediction",
+            "Predictive Cooling",
+            # DE
+            "Energiebedarfsprognose",
+            "Prädiktive Kühlung",
+        ],
+        "+1": [
+            # EN
+            "Energy Efficiency AI",
+            "Renewables AI",
+            "Smart Metering",
+            # DE
+            "Energieeffizienz KI",
+            "Erneuerbare Energien KI",
+        ],
+    },
+
+    # ── 6. Cybersecurity (工业网络安全) ──────────────────────────────
+    # 侧重：ICS/OT 网络异常检测、AI 威胁情报
+    "cybersecurity": {
+        "+3": [
+            # EN
+            "ICS Anomaly Detection",
+            "AI-driven Threat Hunting",
+            # DE
+            "ICS-Anomalieerkennung",
+            "KI-Bedrohungssuche",
+        ],
+        "+2": [
+            # EN
+            "OT Security AI",
+            "Zero Trust AI",
+            "Encrypted Traffic Analysis",
+            # DE
+            "OT-Sicherheit KI",
+            "Zero Trust KI",
+            "Verkehrsverschlüsselung",
+        ],
+        "+1": [
+            # EN
+            "Network Security",
+            "Cyber Defense AI",
+            "Industrial Security",
+            # DE
+            "Netzwerksicherheit",
+            "Cyber-Abwehr KI",
+        ],
+    },
+}
+
+
+# --- 负面特征词库分类 (Negative Keyword Taxonomy) ---
+# -------------------------------------------------------
+
+# A. 软性教程与清单类 (Soft Content & Listicles)
+# 直接降权 (-2)。如果标题中不含 HARD_TECH_KEYWORDS，则过滤。
+NEG_SOFT_LISTICLES = [
+    "7 tips", "x tips for", "how to avoid", "best practices for", 
+    "why you need", "checklist", "guide for", "handbook",
+    "tutorial", "how to become", "demo", "walkthrough", 
+    "step by step", "quick start", "getting started", "how-to", "how to"
 ]
 
-# 强制排除词：命中即过滤（与工业语境无关）
+# B. 企业公关与品牌故事类 (Corporate PR & Branding)
+# 放入硬过滤 (Hard Exclude)。
+NEG_CORPORATE_PR = [
+    "overview", "our vision", "corporate update", "announcing", 
+    "milestone", "success story", "customer story", "testimonial", 
+    "brand story", "celebrating", "proud to", "leadership", "strategic partnership",
+    "press release", "brand campaign", "award", "winner", 
+    "partnership announcement", "sponsored", "advertorial", "promotion", 
+    "promo", "limited offer", "new brochure", "pressemitteilung", 
+    "auszeichnung", "partnerschaft", "werbung",
+    "webinar", "register now", "event recap", "highlights", 
+    "keynote recap", "conference recap", "expo highlights", "livestream", 
+    "live stream", "podcast episode", "summit highlights", "meet us at", 
+    "join us at", "save the date", "veranstaltung", "rückblick", "messe", 
+    "live-übertragung"
+]
+
+# C. 宏观趋势与行业观察类 (Vague Trends & Insights)
+# 若分值低于阈值且命中这些词，直接过滤。
+NEG_VAGUE_TRENDS = [
+    "trends to watch", "future of", "insights", "market report", 
+    "landscape", "infographic", "evolution", "paradigm shift", 
+    "digital transformation", "industry trends", "top trends", "thought leadership"
+]
+
+# D. 投融资与市场动作类 (M&A & Market Moves)
+# 硬过滤。
+NEG_MARKET_MOVES = [
+    "acquisition", "acquisitions", "merger", "mergers", "funding", 
+    "investment", "investments", "stock", "shareholder", 
+    "quarterly results", "fiscal year"
+]
+
+# 硬技术词汇：用于 Category A 的豁免 (Whitelist for technical depth)
+HARD_TECH_KEYWORDS = [
+    "SPS", "PLC", "AAS", "TIA Portal", "OPC UA", "MQTT", "SCADA", 
+    "MES", "HMI", "Profinet", "EtherCAT", "IO-Link", "VIBN", 
+    "Verwaltungsschale", "Digital Twin", "Digitaler Zwilling",
+    "virtual commissioning", "Simulation", "Emulation"
+]
+
+# 理论/学术类负向词 (Existing Theory list)
+NEGATIVE_THEORY_ONLY_KEYWORDS = [
+    "theorem", "proof", "lemma", "corollary", "axiom", "hypergraph",
+    "graph neural network benchmark", "reasoning benchmark", "formal verification",
+    "formal logic", "meta-learning benchmark", "synthetic dataset", "toy dataset",
+    "ablation study only", "state-of-the-art on", "leaderboard", "openreview",
+    "arxiv preprint", "multimodal reasoning", "chain-of-thought benchmark",
+    "spatio-temporal dual-stage", "corridor traffic signal control",
+    "convex optimization framework", "variational bound"
+]
+
+# 兼职/招聘/培训类负向词 (Existing Recruitment list)
+NEGATIVE_RECRUITMENT_KEYWORDS = [
+    "job", "jobs", "hiring", "career", "careers", "internship", "vacancy", 
+    "recruiting", "apply now", "course", "training", "bootcamp", 
+    "certification", "workshop", "masterclass", "stellenangebot", 
+    "karriere", "bewerben", "ausbildung", "schulung", "kurs"
+]
+
+# 强制排除词：命中即过滤（针对特定字符串）
 HARD_EXCLUDE_NOISE_KEYWORDS = [
-    "livestream",
-    "live stream",
-    "webinar",
-    "podcast episode",
-    "event recap",
-    "conference recap",
-    "expo highlights",
-    "summit highlights",
-    "register now",
-    "save the date",
-    "meet us at",
-    "join us at",
-    # Product tutorials / how-to videos (not news)
-    "how to use",          # e.g. "How to use Device Libraries with FactoryTalk View"
-    "armorblock",          # Rockwell product manual content, not news
     # Explicit recurring noisy titles/topics
-    "news about mtp",
-    "mtp",
-    "device libraries - overview",
+    "news about mtp", "mtp", "device libraries - overview",
     "looking back on a successful sps 2025",
     "breaking the encryption: analyzing the automationdirect click plus plc protocol",
-    "power device library overview",
-    "besuchen",
-    "pressemitteilungen",
-    "pressekontakt",
+    "power device library overview", "besuchen", "pressemitteilungen", "pressekontakt",
     "software package for energy-efficient and sustainable building operation",
-    "celebrating",
-    "built by us. driven by you",
+    "built by us. driven by you", "how to use", "armorblock"
 ]
 
-# 降权词：命中后降低分数，但不直接过滤
+# 降权词：命中后降低分数（保留旧的以防万一，可根据需要调整）
 DOWNWEIGHT_NOISE_KEYWORDS = [
-    "software package",
-    "make a sequence",
-    # Tutorial / demo style (usually low news value)
-    "demo",
-    "walkthrough",
-    "step by step",
-    "quick start",
-    "getting started",
-    "how-to",
-    "how to",
-    "tutorial",
-    # Version/update notes without clear AI deployment context
-    "release notes",
-    "version update",
-    "feature update",
-    "patch notes",
-    # Event / exhibition promotion
-    "booth",
-    "hall",
-    "visit us",
-    "join our booth",
-    "expo recap",
-    "trade fair recap",
-    # Brand / PR style
-    "company announcement",
-    "corporate update",
-    "brand story",
-    "customer testimonial",
-    # Generic trend / thought leadership wording
-    "future of",
-    "industry trends",
-    "top trends",
-    "insights",
-    "thought leadership",
-    # Weak-signal video wording
-    "no subtitles",
-    "teaser",
-    "trailer",
-    "highlights only",
-    # German common low-value wording
-    "einfuehrung",
-    "ueberblick",
-    "rueckblick",
-    "veranstaltungsbericht",
-    "kundenstory",
-    # Chinese common low-value wording
-    "发布会",
-    "活动回顾",
-    "参展",
-    "品牌故事",
-    "功能介绍",
-    "教程",
-    "上手指南",
+    "software package", "make a sequence", "release notes", 
+    "version update", "feature update", "patch notes",
+    "booth", "hall", "visit us", "join our booth", "expo recap",
+    "trade fair recap", "company announcement", "corporate update", 
+    "brand story", "customer testimonial", "no subtitles", 
+    "teaser", "trailer", "highlights only", "einfuehrung", 
+    "ueberblick", "rueckblick", "veranstaltungsbericht", 
+    "kundenstory", "发布会", "活动回顾", "参展", "品牌故事", 
+    "功能介绍", "教程", "上手指南",
 ]
 
 # Universal Robots 品牌宣传组合词（仅组合触发硬过滤）

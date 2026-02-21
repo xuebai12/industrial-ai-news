@@ -19,7 +19,13 @@ from config import (
     MEDIUM_PRIORITY_KEYWORDS,
     TECHNICIAN_KEYWORDS,
     INDUSTRY_CONTEXT_KEYWORDS,
+    NEG_SOFT_LISTICLES,
+    NEG_CORPORATE_PR,
+    NEG_VAGUE_TRENDS,
+    NEG_MARKET_MOVES,
+    HARD_TECH_KEYWORDS,
     NEGATIVE_THEORY_ONLY_KEYWORDS,
+    NEGATIVE_RECRUITMENT_KEYWORDS,
     HARD_EXCLUDE_NOISE_KEYWORDS,
     DOWNWEIGHT_NOISE_KEYWORDS,
     UNIVERSAL_ROBOTS_PROMO_KEYWORDS,
@@ -127,62 +133,72 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
             if _contains_keyword(text, kw):
                 score += 1
 
-    # 负向理论/招聘/营销词降噪规则：
-    # 0) 命中强制排除词 -> 直接过滤（如 livestream/webinar/event recap）
+    # --- 负面特征词库分类过滤 (Negative Keyword Taxonomy Filtering) ---
+
+    # B & D: 企业公关、品牌故事、投融资、市场动作 -> 强制排除 (Hard Exclude)
+    has_cat_b = any(_contains_keyword(text, kw) for kw in NEG_CORPORATE_PR)
+    has_cat_d = any(_contains_keyword(text, kw) for kw in NEG_MARKET_MOVES)
+    if has_cat_b or has_cat_d:
+        logger.debug(f"  Category B or D noise filtered: {article.title[:80]}")
+        return 0, []
+
+    # A: 软性教程与清单 (Soft Content & Listicles) -> 降权，无技术词则过滤
+    has_cat_a = any(_contains_keyword(text, kw) for kw in NEG_SOFT_LISTICLES)
+    if has_cat_a:
+        has_hard_tech = any(_contains_keyword(text, kw) for kw in HARD_TECH_KEYWORDS)
+        if not has_hard_tech:
+            logger.debug(f"  Category A noise filtered (no tech keywords): {article.title[:80]}")
+            return 0, []
+        else:
+            score = max(0, score - 2)
+            logger.debug(f"  Category A noise downweighted (with tech keywords): {article.title[:80]}")
+
+    # C: 宏观趋势与行业观察 (Vague Trends & Insights) -> 低分直接过滤
+    has_cat_c = any(_contains_keyword(text, kw) for kw in NEG_VAGUE_TRENDS)
+    if has_cat_c and score < RELEVANCE_THRESHOLD:
+        logger.debug(f"  Category C noise filtered (low score): {article.title[:80]}")
+        return 0, []
+
+    # Additional Hard Excludes (specific strings)
     has_hard_exclude = any(_contains_keyword(text, kw) for kw in HARD_EXCLUDE_NOISE_KEYWORDS)
     if has_hard_exclude:
         logger.debug(f"  hard-exclude noise filtered: {article.title[:80]}")
         return 0, []
 
-    # URL-level hard excludes for press/contact pages.
+    # 理论/招聘类过滤
+    has_negative_theory = any(_contains_keyword(text, kw) for kw in NEGATIVE_THEORY_ONLY_KEYWORDS)
+    has_negative_recruitment = any(_contains_keyword(text, kw) for kw in NEGATIVE_RECRUITMENT_KEYWORDS)
+    has_industry_context = any(_contains_keyword(text, kw) for kw in INDUSTRY_CONTEXT_KEYWORDS)
+
+    if (has_negative_theory or has_negative_recruitment) and not has_industry_context:
+        logger.debug(f"  theory/recruitment noise filtered: {article.title[:80]}")
+        return 0, []
+    if (has_negative_theory or has_negative_recruitment) and has_industry_context:
+        score = max(1, score - 2)
+        logger.debug(f"  theory/recruitment noise downweighted with industry context: {article.title[:80]}")
+
+    # (Keep rest of existing logic for URL, UR promo, YouTube, etc.)
     url_text = (article.url or "").lower()
     hard_exclude_url_parts = ("/presse/", "/press/", "/media-contact", "/press-contact")
     if any(part in url_text for part in hard_exclude_url_parts):
-        logger.debug(f"  hard-exclude URL filtered: {article.url}")
         return 0, []
 
-    # Universal Robots: apply hard filter only on promo-style combinations.
-    # Do not block all UR content by brand alone.
     has_ur_brand = "universal robots" in text
     has_ur_promo = any(_contains_keyword(text, kw) for kw in UNIVERSAL_ROBOTS_PROMO_KEYWORDS)
     if has_ur_brand and has_ur_promo:
-        logger.debug(f"  hard-exclude UR promo filtered: {article.title[:80]}")
         return 0, []
 
-    # 降权而非过滤：针对用户指定的“希望降权”的内容模式
     has_downweight_noise = any(_contains_keyword(text, kw) for kw in DOWNWEIGHT_NOISE_KEYWORDS)
     if has_downweight_noise:
         score = max(0, score - 2)
-        logger.debug(f"  downweighted noisy pattern: {article.title[:80]}")
 
-    # 1) 命中负向词且无工业场景语境 -> 直接过滤（score=0）
-    # 2) 命中负向词且有工业场景语境 -> 允许但降权（至少保留 1 分）
-    has_negative_theory = any(_contains_keyword(text, kw) for kw in NEGATIVE_THEORY_ONLY_KEYWORDS)
-    has_industry_context = any(_contains_keyword(text, kw) for kw in INDUSTRY_CONTEXT_KEYWORDS)
-    if has_negative_theory and not has_industry_context:
-        logger.debug(f"  theory-only noise filtered: {article.title[:80]}")
-        return 0, []
-    if has_negative_theory and has_industry_context:
-        score = max(1, score - 2)
-        logger.debug(f"  theory-only noise downweighted with industry context: {article.title[:80]}")
-
-    # YouTube Shorts: soft downweight (-1) for borderline items.
-    # Shorts with strong keyword hit (score >= threshold+1) pass unchanged.
     is_youtube_source = "youtube" in (article.source or "").lower() or "youtu" in (article.url or "").lower()
     is_shorts = "/shorts/" in (article.url or "")
     if is_shorts and score < RELEVANCE_THRESHOLD + 1:
         score = max(0, score - 1)
-        logger.debug("  youtube shorts downweighted (-1): %s", article.title[:80])
 
-    # YouTube low-traction downweight: if views < 10, reduce score.
-    # This is a soft penalty (not hard block) to keep potential niche high-quality items.
     if is_youtube_source and article.video_views is not None and article.video_views < 10:
         score = max(0, score - 2)
-        logger.debug(
-            "  low-view youtube downweighted (%s views): %s",
-            article.video_views,
-            article.title[:80],
-        )
 
     # Default to Student if relevant but no specific persona tag
     if score >= RELEVANCE_THRESHOLD and not personas:

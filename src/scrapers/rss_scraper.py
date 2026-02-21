@@ -5,7 +5,7 @@ RSS 订阅源抓取器 (RSS Feed Scraper)
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import re
 
@@ -54,7 +54,7 @@ def get_content_snippet(entry: dict, max_len: int = 500) -> str:
 
 
 def scrape_rss(name: str, url: str, language: str, category: str,
-               max_items: int = 20) -> list[Article]:
+               max_items: int = 20, max_age_hours: int = 48) -> list[Article]:
     """
     抓取并解析 RSS 源 (Fetch and parse RSS feed).
     
@@ -64,10 +64,14 @@ def scrape_rss(name: str, url: str, language: str, category: str,
         language: 语言代码 (de/en/zh)
         category: 类别标签
         max_items: 最大条目数
-        
+        max_age_hours: 文章最大时效（小时），超过则跳过；0 表示不限制
+
     Returns:
         list[Article]: 解析后的文章列表
     """
+    cutoff: datetime | None = None
+    if max_age_hours > 0:
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=max_age_hours)
     logger.info(f"[RSS] Fetching: {name} ({url})")
     articles: list[Article] = []
 
@@ -95,6 +99,20 @@ def scrape_rss(name: str, url: str, language: str, category: str,
                 published_date=parse_date(entry),
                 video_views=_extract_youtube_views(entry, url),
             )
+
+            # 时效过滤：跳过超过 max_age_hours 的文章（无发布日期的文章放行）
+            if cutoff and article.published_date:
+                pub_aware = article.published_date.replace(tzinfo=timezone.utc) \
+                    if article.published_date.tzinfo is None \
+                    else article.published_date
+                if pub_aware < cutoff:
+                    logger.debug(
+                        "[RSS] Skipped stale article (>%sh): %s",
+                        max_age_hours,
+                        title[:70],
+                    )
+                    continue
+
             articles.append(article)
 
         logger.info(f"[RSS] Got {len(articles)} articles from {name}")
