@@ -70,7 +70,7 @@ _max_articles = os.getenv("MAX_ARTICLES_PER_SOURCE")
 MAX_ARTICLES_PER_SOURCE = int(_max_articles) if _max_articles else 20  # 每个源最大抓取文章数
 
 _relevance_threshold = os.getenv("RELEVANCE_THRESHOLD")
-RELEVANCE_THRESHOLD = int(_relevance_threshold) if _relevance_threshold else 1  # 关键词相关性阈值
+RELEVANCE_THRESHOLD = int(_relevance_threshold) if _relevance_threshold else 4  # 关键词相关性阈值
 
 _max_age_hours = os.getenv("MAX_ARTICLE_AGE_HOURS")
 MAX_ARTICLE_AGE_HOURS = int(_max_age_hours) if _max_age_hours else 48  # 文章最大时效（小时），默认 48h
@@ -112,6 +112,14 @@ HIGH_PRIORITY_KEYWORDS = [
     "Industrial Copilot",
     "Production Optimization",
     "Smart Maintenance",
+    # Rescue List (硬核技术属性)
+    "Protocol Analysis",
+    "Isaac GR00T",
+    "Edge Reasoning",
+    "In-depth Analysis",
+    "Whitepaper",
+    "Architecture",
+    "Benchmarks",
 ]
 
 # 技师视角高优先级关键词 (+3 分)
@@ -458,10 +466,10 @@ DOMAIN_KEYWORDS: dict[str, dict[str, list[str]]] = {
 # A. 软性教程与清单类 (Soft Content & Listicles)
 # 直接降权 (-2)。如果标题中不含 HARD_TECH_KEYWORDS，则过滤。
 NEG_SOFT_LISTICLES = [
-    "7 tips", "x tips for", "how to avoid", "best practices for", 
+    "how to avoid", "best practices for", 
     "why you need", "checklist", "guide for", "handbook",
     "tutorial", "how to become", "demo", "walkthrough", 
-    "step by step", "quick start", "getting started", "how-to", "how to"
+    "step by step", "quick start", "getting started"
 ]
 
 # B. 企业公关与品牌故事类 (Corporate PR & Branding)
@@ -502,7 +510,10 @@ HARD_TECH_KEYWORDS = [
     "SPS", "PLC", "AAS", "TIA Portal", "OPC UA", "MQTT", "SCADA", 
     "MES", "HMI", "Profinet", "EtherCAT", "IO-Link", "VIBN", 
     "Verwaltungsschale", "Digital Twin", "Digitaler Zwilling",
-    "virtual commissioning", "Simulation", "Emulation"
+    "virtual commissioning", "Simulation", "Emulation",
+    # Rescue List (硬核技术属性 - 豁免 Category A 过滤)
+    "Protocol Analysis", "Isaac GR00T", "Edge Reasoning", 
+    "In-depth Analysis", "Whitepaper", "Architecture", "Benchmarks"
 ]
 
 # 理论/学术类负向词 (Existing Theory list)
@@ -532,7 +543,10 @@ HARD_EXCLUDE_NOISE_KEYWORDS = [
     "breaking the encryption: analyzing the automationdirect click plus plc protocol",
     "power device library overview", "besuchen", "pressemitteilungen", "pressekontakt",
     "software package for energy-efficient and sustainable building operation",
-    "built by us. driven by you", "how to use", "armorblock"
+    "built by us. driven by you", "how to use", "armorblock",
+    # Purge List (拦截名单)
+    "tips", "Acquisition", "Announcing", "Success Story", "Overview", 
+    "Like a Bosch", "Webinar Recap"
 ]
 
 # 降权词：命中后降低分数（保留旧的以防万一，可根据需要调整）

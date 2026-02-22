@@ -90,14 +90,47 @@ def _contains_keyword(text: str, keyword: str) -> bool:
     return kw in text
 
 
+def check_article_substance(article: Article) -> bool:
+    """
+    Substance Check (实质性校验):
+    1. Generic placeholders: "overview", "topics", etc.
+    2. Bosch Stories navigation pages: bosch.com/stories with "overview".
+    3. Empty series titles: "Edition" without a topic (no : or -).
+    """
+    title = (article.title or "").strip()
+    title_lower = title.lower()
+    url = (article.url or "").lower()
+
+    # 1. 过滤掉只有“概述”或“话题”类的单次/短词标题
+    empty_placeholders = ["overview", "fachthemen", "topics", "introduction", "blog post", "news"]
+    if title_lower in empty_placeholders:
+        return False
+
+    # 2. 过滤掉来自 Bosch Stories 等营销号的通用导航页
+    if "bosch.com/stories" in url and "overview" in title_lower:
+        return False
+
+    # 3. 过滤掉没有具体内容的系列号
+    # 例如 "MX-Talk, Edition 25" 这种只有编号没有主题的
+    if "edition" in title_lower and ":" not in title_lower and "-" not in title_lower:
+        return False
+
+    return True
+
+
 def keyword_score(article: Article) -> tuple[int, list[str]]:
     """
     基于关键词匹配计算文章得分与受众标签 (Score article & tag personas).
     - Technician keywords: +3 (Tags: Technician)
-    - High-priority keywords: +2 (Tags: Student)
+    - High-priority keywords: +3 (Tags: Student)
     - Medium-priority keywords: +1
     - Trusted source domain: score boosted to >= RELEVANCE_THRESHOLD
     """
+    # 0) Substance check (实质性校验)
+    if not check_article_substance(article):
+        logger.debug(f"  substance check failed: {article.title[:80]}")
+        return 0, []
+
     text = _normalize_text(f"{article.title} {article.content_snippet}")
     score = 0
     personas = set()
@@ -118,9 +151,9 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
 
     for kw in HIGH_PRIORITY_KEYWORDS:
         if _contains_keyword(text, kw):
-            score += 2
+            score += 3
             personas.add("student") # High priority usually implies core tech relevant to students
-            logger.debug(f"  +2 for keyword '{kw}' in: {article.title[:60]}")
+            logger.debug(f"  +3 for keyword '{kw}' in: {article.title[:60]}")
 
     for kw in MEDIUM_PRIORITY_KEYWORDS:
         if _contains_keyword(text, kw):
@@ -162,8 +195,13 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
     # Additional Hard Excludes (specific strings)
     has_hard_exclude = any(_contains_keyword(text, kw) for kw in HARD_EXCLUDE_NOISE_KEYWORDS)
     if has_hard_exclude:
-        logger.debug(f"  hard-exclude noise filtered: {article.title[:80]}")
-        return 0, []
+        has_hard_tech = any(_contains_keyword(text, kw) for kw in HARD_TECH_KEYWORDS)
+        if not has_hard_tech:
+            logger.debug(f"  hard-exclude noise filtered: {article.title[:80]}")
+            return 0, []
+        else:
+            score = max(0, score - 2)
+            logger.debug(f"  hard-exclude noise downweighted (with tech keywords): {article.title[:80]}")
 
     # 理论/招聘类过滤
     has_negative_theory = any(_contains_keyword(text, kw) for kw in NEGATIVE_THEORY_ONLY_KEYWORDS)
