@@ -131,29 +131,36 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
         logger.debug(f"  substance check failed: {article.title[:80]}")
         return 0, []
 
+    # 1. 过滤掉单单词或过短的无意义标题
+    title = (article.title or "").strip()
+    words = title.split()
+    # If title is 1 word (e.g. "Fachthemen"), or 2 words but extremely short (e.g. "About Us", "Industrie 4.0")
+    if len(words) <= 1 or (len(words) == 2 and len(title) <= 15):
+        logger.debug(f"  single-word/short title filtered: {title[:80]}")
+        return 0, []
+        
     text = _normalize_text(f"{article.title} {article.content_snippet}")
     score = 0
     personas = set()
 
     # --- 域名白名单检查 (Trusted Source Domain Boost) ---
-    # 命中受信域名的文章直接获得最低通过分数（不硬性绕过负向词/HARD_EXCLUDE，只保底）。
     article_url = (article.url or "").lower()
     is_trusted_domain = any(domain in article_url for domain in TRUSTED_SOURCE_DOMAINS)
     if is_trusted_domain:
-        score = RELEVANCE_THRESHOLD  # 保底通过阈值；负向词仍可将其降回 0
-        logger.debug("  trusted domain boost -> score=%s: %s", score, article.title[:60])
+        score += 1
+        logger.debug("  trusted domain boost (+1) -> score=%s: %s", score, article.title[:60])
 
     for kw in TECHNICIAN_KEYWORDS:
         if _contains_keyword(text, kw):
-            score += 3
+            score += 1
             personas.add("technician")
-            logger.debug(f"  +3 for Technician keyword '{kw}' in: {article.title[:60]}")
+            logger.debug(f"  +1 for Technician keyword '{kw}' in: {article.title[:60]}")
 
     for kw in HIGH_PRIORITY_KEYWORDS:
         if _contains_keyword(text, kw):
-            score += 3
+            score += 1
             personas.add("student") # High priority usually implies core tech relevant to students
-            logger.debug(f"  +3 for keyword '{kw}' in: {article.title[:60]}")
+            logger.debug(f"  +1 for keyword '{kw}' in: {article.title[:60]}")
 
     for kw in MEDIUM_PRIORITY_KEYWORDS:
         if _contains_keyword(text, kw):
@@ -200,7 +207,7 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
             logger.debug(f"  hard-exclude noise filtered: {article.title[:80]}")
             return 0, []
         else:
-            score = max(0, score - 2)
+            score = max(0, score - 5)
             logger.debug(f"  hard-exclude noise downweighted (with tech keywords): {article.title[:80]}")
 
     # 理论/招聘类过滤

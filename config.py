@@ -70,7 +70,7 @@ _max_articles = os.getenv("MAX_ARTICLES_PER_SOURCE")
 MAX_ARTICLES_PER_SOURCE = int(_max_articles) if _max_articles else 20  # 每个源最大抓取文章数
 
 _relevance_threshold = os.getenv("RELEVANCE_THRESHOLD")
-RELEVANCE_THRESHOLD = int(_relevance_threshold) if _relevance_threshold else 4  # 关键词相关性阈值
+RELEVANCE_THRESHOLD = int(_relevance_threshold) if _relevance_threshold else 3  # 关键词相关性阈值
 
 _max_age_hours = os.getenv("MAX_ARTICLE_AGE_HOURS")
 MAX_ARTICLE_AGE_HOURS = int(_max_age_hours) if _max_age_hours else 48  # 文章最大时效（小时），默认 48h
@@ -112,6 +112,21 @@ HIGH_PRIORITY_KEYWORDS = [
     "Industrial Copilot",
     "Production Optimization",
     "Smart Maintenance",
+    
+    # Core CN terms (中文核心词)
+    "具身智能",
+    "产业AI",
+    "边缘计算",
+    "大模型",
+    "光刻机",
+    "工业机器人",
+    "算力",
+
+    # Robotics terms
+    "Roboter",
+    "AMR",
+    "End effector",
+
     # Rescue List (硬核技术属性)
     "Protocol Analysis",
     "Isaac GR00T",
@@ -128,7 +143,6 @@ TECHNICIAN_KEYWORDS = [
     "SPS",                         # Programmable Logic Controller (German abbreviation)
     "TIA Portal",                  # Siemens engineering software
     "Inbetriebnahme",              # Commissioning
-    "Virtuelle Inbetriebnahme",    # Virtual commissioning (overlaps HIGH_PRIORITY but critical here)
     "Steuerungstechnik",           # Control engineering
 
     # --- EN: Control Systems ---
@@ -138,7 +152,6 @@ TECHNICIAN_KEYWORDS = [
     "Motion Control",
     "Ladder Logic",
     "Commissioning",
-    "Virtual Commissioning",
     "Field Service",               # On-site engineering support
 
     # --- DE: 维护与运维 / Instandhaltung & Betrieb ---
@@ -486,7 +499,7 @@ NEG_CORPORATE_PR = [
     "keynote recap", "conference recap", "expo highlights", "livestream", 
     "live stream", "podcast episode", "summit highlights", "meet us at", 
     "join us at", "save the date", "veranstaltung", "rückblick", "messe", 
-    "live-übertragung"
+    "live-übertragung","log",
 ]
 
 # C. 宏观趋势与行业观察类 (Vague Trends & Insights)
@@ -494,7 +507,8 @@ NEG_CORPORATE_PR = [
 NEG_VAGUE_TRENDS = [
     "trends to watch", "future of", "insights", "market report", 
     "landscape", "infographic", "evolution", "paradigm shift", 
-    "digital transformation", "industry trends", "top trends", "thought leadership"
+    "digital transformation", "industry trends", "top trends", "thought leadership",
+    "trend", "insight"
 ]
 
 # D. 投融资与市场动作类 (M&A & Market Moves)
@@ -511,6 +525,8 @@ HARD_TECH_KEYWORDS = [
     "MES", "HMI", "Profinet", "EtherCAT", "IO-Link", "VIBN", 
     "Verwaltungsschale", "Digital Twin", "Digitaler Zwilling",
     "virtual commissioning", "Simulation", "Emulation",
+    "Roboter", "AMR", "End effector",
+    "具身智能", "产业AI", "光刻机", "工业机器人", "大模型", "算力",
     # Rescue List (硬核技术属性 - 豁免 Category A 过滤)
     "Protocol Analysis", "Isaac GR00T", "Edge Reasoning", 
     "In-depth Analysis", "Whitepaper", "Architecture", "Benchmarks"
@@ -546,7 +562,8 @@ HARD_EXCLUDE_NOISE_KEYWORDS = [
     "built by us. driven by you", "how to use", "armorblock",
     # Purge List (拦截名单)
     "tips", "Acquisition", "Announcing", "Success Story", "Overview", 
-    "Like a Bosch", "Webinar Recap"
+    "Like a Bosch", "Webinar Recap",
+    "ergebnisse", "edition", "blog", "log"
 ]
 
 # 降权词：命中后降低分数（保留旧的以防万一，可根据需要调整）
