@@ -112,6 +112,10 @@ HIGH_PRIORITY_KEYWORDS = [
     "Industrial Copilot",
     "Production Optimization",
     "Smart Maintenance",
+    "Industry 4.0",
+    "Industrie 4.0",
+    "Industrial IoT",
+    "IIoT",
     
     # Core CN terms (中文核心词)
     "具身智能",
@@ -121,6 +125,27 @@ HIGH_PRIORITY_KEYWORDS = [
     "光刻机",
     "工业机器人",
     "算力",
+    "工业AI", "工业 AI",
+    "数字孪生",
+    "灯塔工厂",
+    "智能体",
+    "AI代理", "AI 代理",
+    "生产调度",
+    "边缘AI", "边缘侧",
+    "人形机器人",
+    "人机协作",
+    "流程控制",
+    "瓶颈优化",
+    "决策引擎",
+    "工作流",
+
+    # English Advanced Tech terms
+    "Agentic",
+    "Agentic AI",
+    "AI Agent",
+    "IT/OT", "IT/OT 融合",
+    "Edge AI",
+    "OEE",
 
     # Robotics terms
     "Roboter",
@@ -135,6 +160,15 @@ HIGH_PRIORITY_KEYWORDS = [
     "Whitepaper",
     "Architecture",
     "Benchmarks",
+    
+    # Exemption Rescue keywords
+    "OT Security", "OT Cybersecurity", "ICS Security", "Vulnerability", "Vulnerabilities",
+    "IEC 62443", "NERC CIP", "Threat Prevention", "Threat Detection", "Anomaly Detection",
+    "Power Grid Attack", "Power Grid", "Cyberattack",
+    "Machine Health", "Condition-Based Monitoring", "Condition-Based Maintenance", "Predictive Maintenance", "Remote Monitoring",
+    "Humanoid Robot", "Humanoid Robots", "humanoiden Robotern", "Embodied AI", "Robot Demand", "Service Robots",
+    "Lithography", "Semiconductors", "Semiconductor",
+    "Künstliche Intelligenz", "KI ",
 ]
 
 # 技师视角高优先级关键词 (+3 分)
@@ -221,6 +255,20 @@ TECHNICIAN_KEYWORDS = [
 
     # --- EN: AI Hardware (supply signal for industrial readers) ---
     "AI chip",
+
+    # --- EN/CN: Advanced Manufacturing AI (AI/Edge/Robotics) ---
+    "工业AI", "工业 AI", "数字孪生", "灯塔工厂", "智能体", "AI代理", "AI 代理", "生产调度", 
+    "边缘AI", "边缘侧", "人形机器人", "人机协作", "流程控制", "瓶颈优化", "决策引擎", "工作流",
+    "Agentic", "Agentic AI", "AI Agent", "IT/OT", "IT/OT 融合", "Edge AI",
+
+    # Exemption Rescue keywords
+    "OT Security", "OT Cybersecurity", "ICS Security", "Vulnerability", "Vulnerabilities",
+    "IEC 62443", "NERC CIP", "Threat Prevention", "Threat Detection", "Anomaly Detection",
+    "Power Grid Attack", "Power Grid", "Cyberattack",
+    "Machine Health", "Condition-Based Monitoring", "Condition-Based Maintenance", "Predictive Maintenance", "Remote Monitoring",
+    "Humanoid Robot", "Humanoid Robots", "humanoiden Robotern", "Embodied AI", "Robot Demand", "Service Robots",
+    "Lithography", "Semiconductors", "Semiconductor",
+    "Künstliche Intelligenz", "KI ",
 ]
 
 # 中优先级关键词 (+1 分)
@@ -526,10 +574,22 @@ HARD_TECH_KEYWORDS = [
     "Verwaltungsschale", "Digital Twin", "Digitaler Zwilling",
     "virtual commissioning", "Simulation", "Emulation",
     "Roboter", "AMR", "End effector",
-    "具身智能", "产业AI", "光刻机", "工业机器人", "大模型", "算力",
+    "具身智能", "产业AI", "光刻机", "工业机器人", "大模型", "算力", 
+    "工业AI", "工业 AI", "数字孪生", "灯塔工厂", "智能体", "AI代理", "AI 代理", "生产调度", 
+    "边缘AI", "边缘侧", "人形机器人", "人机协作", "流程控制", "瓶颈优化", "决策引擎", "工作流",
+    "Agentic", "Agentic AI", "AI Agent", "IT/OT", "IT/OT 融合", "Edge AI", "OEE",
     # Rescue List (硬核技术属性 - 豁免 Category A 过滤)
     "Protocol Analysis", "Isaac GR00T", "Edge Reasoning", 
-    "In-depth Analysis", "Whitepaper", "Architecture", "Benchmarks"
+    "In-depth Analysis", "Whitepaper", "Architecture", "Benchmarks",
+    
+    # Exemption Rescue keywords
+    "OT Security", "OT Cybersecurity", "ICS Security", "Vulnerability", "Vulnerabilities",
+    "IEC 62443", "NERC CIP", "Threat Prevention", "Threat Detection", "Anomaly Detection",
+    "Power Grid Attack", "Power Grid", "Cyberattack",
+    "Machine Health", "Condition-Based Monitoring", "Condition-Based Maintenance", "Predictive Maintenance", "Remote Monitoring",
+    "Humanoid Robot", "Humanoid Robots", "humanoiden Robotern", "Embodied AI", "Robot Demand", "Service Robots",
+    "Lithography", "Semiconductors", "Semiconductor",
+    "Künstliche Intelligenz", "KI ",
 ]
 
 # 理论/学术类负向词 (Existing Theory list)
@@ -631,6 +691,23 @@ TRUSTED_SOURCE_DOMAINS: list[str] = [
     "nozominetworks.com",      # Nozomi Networks (OT/ICS cybersecurity)
     "dragos.com",              # Dragos (OT cybersecurity)
     "bosch.com",               # Bosch (manufacturing AI/IoT/industry stories)
+
+    # User specified sources
+    "nvidia.com",              # NVIDIA / CES
+    "weforum.org",             # World Economic Forum (WEF)
+    "iot-analytics.com",       # IoT Analytics
+    "idc.com",                 # IDC
+    "biztechmagazine.com",     # BizTech Magazine
+    "abiresearch.com",         # ABI Research
+    "ifs.com",                 # IFS Blog
+    "inpixon.com",             # Inpixon Industrial
+    "inform-software.com",     # INFORM Software
+    "zerynth.com",             # Zerynth Industry
+    "regesta.com",             # Regesta Italia / Regesta Group
+    "jazzyear.com",            # 甲子光年 (JazzYear)
+    "36kr.com",                # 36Kr
+    "handelsblatt.com",        # Handelsblatt (German Economics)
+    "fluke.com",               # Fluke Reliability
 ]
 
 # --- Recipient Profiles (Multi-Audience) (多受众画像配置) ---

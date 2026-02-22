@@ -82,12 +82,16 @@ def _normalize_text(text: str) -> str:
 def _contains_keyword(text: str, keyword: str) -> bool:
     """Keyword match with basic word-boundary protection."""
     kw = _normalize_text(keyword).strip()
+    norm_text = _normalize_text(text)
     if not kw:
         return False
+    # 如果包含宽字符（如中文），通常不需要单词边界，因为中文没有空格分隔
+    if any(ord(c) > 0x2E7F for c in kw):
+        return kw in norm_text
     # Use boundary matching for single-token keywords to avoid accidental hits.
     if " " not in kw:
-        return re.search(rf"\b{re.escape(kw)}\b", text) is not None
-    return kw in text
+        return re.search(rf"\b{re.escape(kw)}\b", norm_text) is not None
+    return kw in norm_text
 
 
 def check_article_substance(article: Article) -> bool:
@@ -134,10 +138,12 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
     # 1. 过滤掉单单词或过短的无意义标题
     title = (article.title or "").strip()
     words = title.split()
-    # If title is 1 word (e.g. "Fachthemen"), or 2 words but extremely short (e.g. "About Us", "Industrie 4.0")
-    if len(words) <= 1 or (len(words) == 2 and len(title) <= 15):
-        logger.debug(f"  single-word/short title filtered: {title[:80]}")
-        return 0, []
+    # If title is 1 word and very short, or 2 words and short
+    # This prevents blocking valid Chinese titles which often have 0 spaces but > 10 chars.
+    if len(title) <= 15:
+        if len(words) <= 1 or len(words) == 2:
+            logger.debug(f"  single-word/short title filtered: {title[:80]}")
+            return 0, []
         
     text = _normalize_text(f"{article.title} {article.content_snippet}")
     score = 0

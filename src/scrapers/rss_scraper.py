@@ -8,8 +8,13 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import re
+import ssl
 
 import feedparser
+
+# Disable SSL verification for feedparser (macOS fix for YouTube RSS)
+if hasattr(ssl, '_create_unverified_context'):
+    ssl._create_default_https_context = ssl._create_unverified_context
 
 from src.models import Article
 
