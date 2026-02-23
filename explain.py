@@ -1,1 +1,0 @@
-print("Explaining the logic")

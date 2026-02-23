@@ -385,7 +385,16 @@ def _call_and_parse(client: OpenAI, system_prompt: str, user_content: str) -> di
                 "timeout": REQUEST_TIMEOUT_SECONDS,
             }
             if IS_LOCAL:
-                request_kwargs["extra_body"] = {"format": "json"}
+                # Explicitly set num_predict for local models to match MAX_TOKENS
+                # and ensure context window is sufficient.
+                request_kwargs["extra_body"] = {
+                    "format": "json",
+                    "options": {
+                        "num_predict": MAX_TOKENS,
+                        "num_ctx": 4096,
+                        "temperature": request_kwargs["temperature"]
+                    }
+                }
 
             response = client.chat.completions.create(
                 **request_kwargs
