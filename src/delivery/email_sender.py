@@ -6,16 +6,38 @@
 
 import logging
 import smtplib
+import json
+import os
+import re
 from datetime import date
+from dataclasses import replace
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from jinja2 import Template
+from openai import OpenAI
 
-from config import EMAIL_FROM, EMAIL_TO, SMTP_HOST, SMTP_PASS, SMTP_PORT, SMTP_USER
+from config import (
+    EMAIL_FROM,
+    EMAIL_TO,
+    SMTP_HOST,
+    SMTP_PASS,
+    SMTP_PORT,
+    SMTP_USER,
+    LLM_API_KEY,
+    LLM_BASE_URL,
+    LLM_MODEL,
+)
 from src.models import AnalyzedArticle
 
 logger = logging.getLogger(__name__)
+_translator_client: OpenAI | None = None
+TECHNICIAN_LANGUAGE_GUARD_ENABLED = (
+    os.getenv("TECHNICIAN_LANGUAGE_GUARD_ENABLED", "true").lower() == "true"
+)
+TECHNICIAN_GUARD_MAX_REWRITE = max(0, int(os.getenv("TECHNICIAN_GUARD_MAX_REWRITE", "8")))
+TECHNICIAN_GUARD_TIMEOUT_SECONDS = float(os.getenv("TECHNICIAN_GUARD_TIMEOUT_SECONDS", "45"))
+TECHNICIAN_GUARD_MAX_TOKENS = int(os.getenv("TECHNICIAN_GUARD_MAX_TOKENS", "700"))
 
 
 I18N_LABELS = {
@@ -23,7 +45,6 @@ I18N_LABELS = {
         "title": "Industrial AI Daily Digest",
         "stats": "Selected <strong>{{ count }}</strong> relevant updates today",
         "simple_explain_label": "Plain Explanation",
-        "tech_points_label": "Technical Highlights",
         "application_label": "Application Context",
         "source_label": "Source",
         "link_label": "Original Article",
@@ -35,7 +56,6 @@ I18N_LABELS = {
         "title": "工业 AI 每日摘要",
         "stats": "今日共筛选出 <strong>{{ count }}</strong> 条相关情报",
         "simple_explain_label": "通俗解读",
-        "tech_points_label": "核心技术",
         "application_label": "应用背景",
         "source_label": "来源",
         "link_label": "查看原文",
@@ -44,16 +64,17 @@ I18N_LABELS = {
         "footer": "Industrial AI Intelligence System",
     },
     "de": {
-        "title": "Industrial AI Tageszusammenfassung",
+        "title": "Tageszusammenfassung Industrielle KI",
         "stats": "Heute wurden <strong>{{ count }}</strong> relevante Berichte ausgewählt",
         "simple_explain_label": "Einfach Erklaert",
-        "tech_points_label": "Kerntechnologie",
         "application_label": "Anwendungskontext",
         "source_label": "Quelle",
         "link_label": "Originalartikel",
         "overview_title": "Tagesueberblick",
         "top_title": "Top 3",
-        "footer": "Industrial AI Intelligence System (DE)",
+        "pending_title": "Weitere Relevante Artikel (nicht analysiert)",
+        "pending_empty": "Keine unanalysierten Artikel in dieser Kategorie.",
+        "footer": "System fuer Industrielle KI",
     },
 }
 
@@ -90,6 +111,7 @@ EMAIL_TEMPLATE = Template(
   .footer { text-align: center; padding: 16px 8px 8px; font-size: 12px; color: #98a2b3; }
   .extra { background: #fff; border: 1px solid #dbe3ee; border-radius: 12px; padding: 14px; margin: 12px 0; }
   .extra h2 { margin: 0 0 10px; font-size: 15px; color: #0b3c7f; }
+  .extra h3 { margin: 12px 0 8px; font-size: 13px; color: #0f3d86; }
   .extra table { width: 100%; border-collapse: collapse; font-size: 12px; }
   .extra th, .extra td { border-bottom: 1px solid #e6ebf2; padding: 6px 4px; text-align: left; vertical-align: top; }
   .extra th { color: #475467; font-weight: 700; }
@@ -99,18 +121,12 @@ EMAIL_TEMPLATE = Template(
 <body>
   <div class="header">
     <h1>{{ labels.title }}</h1>
-    <div class="date">{{ today }} | Industrial AI & Simulation</div>
+    <div class="date">{{ today }} | {% if persona == 'technician' %}Industrielle KI & Simulation{% else %}Industrial AI & Simulation{% endif %}</div>
   </div>
 
   <div class="overview">
     <h2>{{ labels.overview_title }}</h2>
     <p>{{ labels.stats | replace('{{ count }}', articles|length|string) }}</p>
-    <div class="label">{{ labels.top_title }}</div>
-    <ul>
-      {% for item in top_articles %}
-      <li>{{ item }}</li>
-      {% endfor %}
-    </ul>
   </div>
 
   {% for article in articles %}
@@ -118,12 +134,9 @@ EMAIL_TEMPLATE = Template(
     <span class="category">{{ article.category_tag }}</span>
 
     <h3>{{ article.display_title }}</h3>
+    {% if article.title_en %}
     <div class="subtle">{{ article.title_en }}</div>
-
-    <div class="row">
-      <span class="label">{{ labels.tech_points_label }}</span>
-      <div class="value">{{ article.core_tech_compact }}</div>
-    </div>
+    {% endif %}
 
     <div class="row">
       <span class="label">{{ labels.application_label }}</span>
@@ -144,7 +157,10 @@ EMAIL_TEMPLATE = Template(
 
   {% if pending_articles %}
   <div class="extra">
-    <h2>Weitere Relevante Artikel (nicht analysiert)</h2>
+    <h2>{{ labels.pending_title if labels.pending_title else 'Weitere Relevante Artikel (nicht analysiert)' }}</h2>
+    {% for group in pending_articles %}
+    <h3>{{ group.domain_label }}</h3>
+    {% if group['items'] %}
     <table>
       <thead>
         <tr>
@@ -155,16 +171,20 @@ EMAIL_TEMPLATE = Template(
         </tr>
       </thead>
       <tbody>
-        {% for item in pending_articles %}
+        {% for item in group['items'] %}
         <tr>
           <td>{{ loop.index }}</td>
           <td>{{ item.category }}</td>
           <td>{{ item.title }}</td>
-          <td><a href="{{ item.url }}">Open</a></td>
+          <td><a href="{{ item.url }}">{% if persona == 'technician' %}Oeffnen{% else %}Open{% endif %}</a></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+    {% else %}
+    <div class="value">{{ labels.pending_empty if labels.pending_empty else 'Keine unanalysierten Artikel in dieser Kategorie.' }}</div>
+    {% endif %}
+    {% endfor %}
   </div>
   {% endif %}
 
@@ -178,10 +198,9 @@ EMAIL_TEMPLATE = Template(
 
 
 def _clip(text: str, limit: int) -> str:
-    value = (text or "").strip()
-    if len(value) <= limit:
-        return value
-    return value[: limit - 1].rstrip() + "..."
+    # Keep full content; clipping disabled by product rule.
+    _ = limit
+    return (text or "").strip()
 
 
 def _pick_title(article: AnalyzedArticle, lang: str) -> str:
@@ -208,6 +227,174 @@ def _pick_secondary_summary(article: AnalyzedArticle, lang: str) -> str:
     return article.summary_en if article.summary_en != article.summary_zh else ""
 
 
+def _get_translator_client() -> OpenAI | None:
+    global _translator_client
+    if _translator_client is None:
+        if not LLM_API_KEY or not LLM_BASE_URL:
+            return None
+        _translator_client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, max_retries=1)
+    return _translator_client
+
+
+def _extract_json_obj(text: str) -> dict | None:
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+
+    md = re.search(r"```(?:json)?\s*(\{.*\})\s*```", raw, re.DOTALL)
+    if md:
+        try:
+            parsed = json.loads(md.group(1))
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            return None
+
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start != -1 and end > start:
+        try:
+            parsed = json.loads(raw[start : end + 1])
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _needs_german_rewrite(article: AnalyzedArticle) -> bool:
+    text = " ".join(
+        [
+            article.title_de or "",
+            article.german_context or "",
+            article.technician_analysis_de or "",
+        ]
+    ).strip()
+    if not text:
+        return False
+
+    cjk_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
+    words = re.findall(r"[A-Za-zÄÖÜäöüß]+", text)
+    if not words:
+        return cjk_chars > 0
+
+    english_stopwords = {
+        "the", "and", "for", "with", "from", "this", "that", "are", "is", "to", "of", "in",
+        "on", "as", "by", "an", "or", "be", "can", "will", "at", "it", "using", "model",
+    }
+    german_stopwords = {
+        "und", "der", "die", "das", "mit", "fuer", "für", "ist", "im", "in", "auf", "eine",
+        "einer", "den", "dem", "zu", "als", "wird", "durch", "bei", "aus", "vom", "zur",
+        "an", "vom", "nach", "ohne",
+    }
+    english_hits = sum(1 for w in words if w.lower() in english_stopwords)
+    german_hits = sum(1 for w in words if w.lower() in german_stopwords)
+    latin_words = sum(1 for w in words if re.fullmatch(r"[A-Za-z]+", w) is not None)
+    latin_ratio = latin_words / max(1, len(words))
+
+    if cjk_chars >= 8:
+        return True
+    if english_hits >= 6 and english_hits >= german_hits * 2:
+        return True
+    if latin_ratio > 0.75 and german_hits <= 2 and len(words) >= 24:
+        return True
+    return False
+
+
+def _rewrite_to_german(article: AnalyzedArticle) -> AnalyzedArticle:
+    client = _get_translator_client()
+    if client is None:
+        return article
+
+    prompt = (
+        "Rewrite the provided fields into clear professional German for industrial technicians. "
+        "Return JSON only with keys: title_de, german_context, technician_analysis_de. "
+        "Do not output English or Chinese sentences except fixed product names/acronyms."
+    )
+    user = (
+        f"title_de: {article.title_de or article.title_en or article.title_zh}\n"
+        f"german_context: {article.german_context}\n"
+        f"technician_analysis_de: {article.technician_analysis_de or article.simple_explanation}\n"
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": user},
+            ],
+            temperature=0.0,
+            max_tokens=TECHNICIAN_GUARD_MAX_TOKENS,
+            timeout=TECHNICIAN_GUARD_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning("[LANG_GUARD] rewrite request failed for '%s': %s", article.title_en[:60], exc)
+        return article
+
+    raw = getattr(response.choices[0].message, "content", "") or ""
+    data = _extract_json_obj(raw)
+    if not data:
+        logger.warning("[LANG_GUARD] rewrite returned non-JSON for '%s'", article.title_en[:60])
+        return article
+
+    def _s(key: str, fallback: str) -> str:
+        value = data.get(key)
+        return value.strip() if isinstance(value, str) and value.strip() else fallback
+
+    return replace(
+        article,
+        title_de=_s("title_de", article.title_de or article.title_en or article.title_zh),
+        german_context=_s("german_context", article.german_context),
+        technician_analysis_de=_s("technician_analysis_de", article.technician_analysis_de),
+    )
+
+
+def _enforce_technician_language_guard(articles: list[AnalyzedArticle]) -> list[AnalyzedArticle]:
+    if not TECHNICIAN_LANGUAGE_GUARD_ENABLED:
+        return articles
+    rewritten: list[AnalyzedArticle] = []
+    rewrites = 0
+    for article in articles:
+        if rewrites < TECHNICIAN_GUARD_MAX_REWRITE and _needs_german_rewrite(article):
+            logger.warning(
+                "[LANG_GUARD] Non-German ratio high, rewriting article: %s",
+                (article.title_en or article.title_de or article.title_zh)[:80],
+            )
+            rewritten.append(_rewrite_to_german(article))
+            rewrites += 1
+        else:
+            rewritten.append(article)
+    if rewrites:
+        logger.info("[LANG_GUARD] Rewritten %s technician article(s) to German", rewrites)
+    return rewritten
+
+
+def _to_german_category(tag: str) -> str:
+    value = (tag or "").strip()
+    lower = value.lower()
+    mapping = [
+        (("digital twin",), "Digitaler Zwilling"),
+        (("industry 4.0", "industrie 4.0"), "Industrie 4.0"),
+        (("simulation",), "Simulation"),
+        (("ai", "künstliche intelligenz"), "Kuenstliche Intelligenz"),
+        (("research",), "Forschung"),
+        (("factory", "manufacturing"), "Fabrik"),
+        (("robot", "humanoid"), "Robotik"),
+        (("automotive", "vehicle"), "Automobil"),
+        (("supply chain", "logistics"), "Lieferkette"),
+        (("energy", "grid", "power"), "Energie"),
+        (("cyber", "security", "ot security", "ics"), "Cybersicherheit"),
+    ]
+    for keys, translated in mapping:
+        if any(k in lower for k in keys):
+            return translated
+    return value or "Sonstiges"
+
+
 def render_digest(
     articles: list[AnalyzedArticle],
     today: str | None = None,
@@ -229,20 +416,23 @@ def render_digest(
     for article in articles:
         if persona == "technician":
             context_compact = _clip(article.german_context or "N/A", 200)
-            mechanism_text = article.technician_analysis_de or article.core_tech_points or "N/A"
+            mechanism_text = article.technician_analysis_de or "N/A"
             explain_compact = _clip(mechanism_text, 220)
-            title_en_compact = _clip(article.title_en or "", 110)
+            title_en_compact = ""
+            category_tag = _to_german_category(article.category_tag)
+            display_title = _clip(article.title_de or article.title_en or article.title_zh, 90)
         else:
             context_compact = _clip(article.german_context or "N/A", 140)
             explain_compact = _clip(article.simple_explanation or "N/A", 200)
             title_en_compact = _clip(article.title_en or "", 110) if lang == "en" else _clip(article.title_en or "", 110)
+            category_tag = article.category_tag
+            display_title = _clip(_pick_title(article, lang), 90)
 
         rendered_articles.append(
             {
-                "category_tag": article.category_tag,
-                "display_title": _clip(_pick_title(article, lang), 90),
+                "category_tag": category_tag,
+                "display_title": display_title,
                 "title_en": title_en_compact,
-                "core_tech_compact": _clip(article.core_tech_points or "N/A", 130),
                 "context_compact": context_compact,
                 "simple_explanation": explain_compact,
                 "source_name": article.source_name,
@@ -250,17 +440,13 @@ def render_digest(
             }
         )
 
-    top_articles = [f"{i + 1}. {item['display_title']}" for i, item in enumerate(rendered_articles[:3])]
-    if not top_articles:
-        top_articles = ["No articles today."]
-
     return EMAIL_TEMPLATE.render(
         today=today,
         articles=rendered_articles,
-        top_articles=top_articles,
         pending_articles=pending_articles or [],
         profile=profile,
         labels=labels,
+        persona=persona,
     )
 
 
@@ -275,37 +461,72 @@ def render_digest_text(
         today = date.today().strftime("%Y-%m-%d")
 
     persona = str(getattr(profile, "persona", "")).strip().lower() if profile else ""
-    lang = "en" if persona == "student" else "zh"
+    if persona == "student":
+        lang = "en"
+    elif persona == "technician":
+        lang = "de"
+    else:
+        lang = "zh"
 
-    lines = [f"[Industrial AI Digest] {today}", f"Articles: {len(articles)}", "Top 3:"]
-
-    for idx, article in enumerate(articles[:3], start=1):
-        if lang == "en":
-            lines.append(f"{idx}. {_clip(article.title_en or article.title_de or article.title_zh, 100)}")
-        else:
-            lines.append(f"{idx}. {_clip(article.title_zh or article.title_en, 100)}")
+    if lang == "de":
+        lines = [f"[Tagesuebersicht Industrielle KI] {today}", f"Artikel: {len(articles)}"]
+    elif lang == "zh":
+        lines = [f"[工业 AI 每日摘要] {today}", f"文章数: {len(articles)}"]
+    else:
+        lines = [f"[Industrial AI Digest] {today}", f"Articles: {len(articles)}"]
 
     lines.append("\nDetails:\n")
 
     for article in articles:
         if lang == "en":
             display_title = _clip(article.title_en or article.title_de or article.title_zh, 100)
+            explain = _clip(article.simple_explanation or "N/A", 180)
+            app = _clip(article.german_context or "N/A", 140)
+            category = article.category_tag
+        elif lang == "de":
+            display_title = _clip(article.title_de or article.title_en or article.title_zh, 100)
+            explain = _clip(article.technician_analysis_de or "N/A", 180)
+            app = _clip(article.german_context or "N/A", 140)
+            category = _to_german_category(article.category_tag)
         else:
             display_title = _clip(article.title_zh or article.title_en, 100)
-        lines.append(f"[{article.category_tag}] {display_title}")
-        lines.append(f"- Tech: {_clip(article.core_tech_points or 'N/A', 120)}")
-        lines.append(f"- Application: {_clip(article.german_context or 'N/A', 140)}")
-        lines.append(f"- Explain: {_clip(article.simple_explanation or 'N/A', 180)}")
-        lines.append(f"- Source: {article.source_name} | {article.source_url}")
+            explain = _clip(article.simple_explanation or "N/A", 180)
+            app = _clip(article.german_context or "N/A", 140)
+            category = article.category_tag
+        lines.append(f"[{category}] {display_title}")
+        if lang == "de":
+            lines.append(f"- Anwendung: {app}")
+            lines.append(f"- Erklaerung: {explain}")
+            lines.append(f"- Quelle: {article.source_name} | {article.source_url}")
+        else:
+            lines.append(f"- Application: {app}")
+            lines.append(f"- Explain: {explain}")
+            lines.append(f"- Source: {article.source_name} | {article.source_url}")
         lines.append("")
 
     if pending_articles:
-        lines.append("More relevant articles (not analyzed):")
-        for idx, item in enumerate(pending_articles, start=1):
-            lines.append(
-                f"{idx}. [{item.get('category', 'N/A')}] {_clip(item.get('title', 'N/A'), 100)} "
-                f"| {item.get('url', '')}"
-            )
+        if lang == "de":
+            lines.append("Weitere Relevante Artikel (nicht analysiert):")
+        elif lang == "zh":
+            lines.append("更多相关但未分析文章：")
+        else:
+            lines.append("More relevant articles (not analyzed):")
+        for group in pending_articles:
+            lines.append(f"- {group.get('domain_label', '')}")
+            items = group.get("items", [])
+            if not items:
+                if lang == "de":
+                    lines.append("  Keine unanalysierten Artikel in dieser Kategorie.")
+                elif lang == "zh":
+                    lines.append("  该类别暂无未分析文章。")
+                else:
+                    lines.append("  No unanalyzed articles in this category.")
+                continue
+            for idx, item in enumerate(items, start=1):
+                lines.append(
+                    f"  {idx}. [{item.get('category', 'N/A')}] {_clip(item.get('title', 'N/A'), 100)} "
+                    f"| {item.get('url', '')}"
+                )
         lines.append("")
 
     return "\n".join(lines)
@@ -325,7 +546,13 @@ def send_email(
     if today is None:
         today = date.today().strftime("%Y-%m-%d")
 
-    html_content = render_digest(articles, today, profile, pending_articles=pending_articles)
+    send_articles = articles
+    if profile and hasattr(profile, "persona"):
+        persona = str(getattr(profile, "persona", "")).strip().lower()
+        if persona == "technician":
+            send_articles = _enforce_technician_language_guard(articles)
+
+    html_content = render_digest(send_articles, today, profile, pending_articles=pending_articles)
 
     msg = MIMEMultipart("alternative")
     if profile and hasattr(profile, "persona"):
@@ -338,13 +565,16 @@ def send_email(
             subject_prefix = ""
     else:
         subject_prefix = ""
-    msg["Subject"] = f"{subject_prefix}📅 {today} Industrial AI Digest ({len(articles)})"
+    if profile and hasattr(profile, "persona") and str(getattr(profile, "persona", "")).strip().lower() == "technician":
+        msg["Subject"] = f"{subject_prefix}📅 {today} Tageszusammenfassung Industrielle KI ({len(articles)})"
+    else:
+        msg["Subject"] = f"{subject_prefix}📅 {today} Industrial AI Digest ({len(send_articles)})"
     msg["From"] = EMAIL_FROM or SMTP_USER
 
     recipient = profile.email if profile and hasattr(profile, "email") else EMAIL_TO
     msg["To"] = recipient
 
-    text_content = render_digest_text(articles, today, pending_articles=pending_articles, profile=profile)
+    text_content = render_digest_text(send_articles, today, pending_articles=pending_articles, profile=profile)
     msg.attach(MIMEText(text_content, "plain", "utf-8"))
     msg.attach(MIMEText(html_content, "html", "utf-8"))
 

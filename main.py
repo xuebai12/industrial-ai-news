@@ -18,6 +18,14 @@ from config import DATA_SOURCES, RECIPIENT_PROFILES, validate_config, MAX_ARTICL
 
 logger = logging.getLogger(__name__)
 YOUTUBE_MAX_ITEMS = int(os.getenv("YOUTUBE_MAX_ITEMS", "5"))
+PENDING_SIX_DOMAINS: list[tuple[str, str]] = [
+    ("factory", "Fabrik"),
+    ("robotics", "Robotik"),
+    ("automotive", "Automobil"),
+    ("supply_chain", "Lieferkette"),
+    ("energy", "Energie"),
+    ("cybersecurity", "Cybersicherheit"),
+]
 
 
 class JsonFormatter(logging.Formatter):
@@ -184,6 +192,26 @@ def _normalize_url(url: str) -> str:
     )
 
 
+def _article_key(article: object) -> str:
+    """Stable key for article identity across pipeline stages."""
+    url = getattr(article, "url", "") or getattr(article, "source_url", "")
+    key = _normalize_url(url)
+    if key:
+        return key
+    source = getattr(article, "source", "") or getattr(article, "source_name", "")
+    title = getattr(article, "title", "") or getattr(article, "title_en", "") or getattr(article, "title_zh", "")
+    return f"{source}:{title}"
+
+
+def _article_source_key(article: object) -> str:
+    source = (
+        getattr(article, "source", "")
+        or getattr(article, "source_name", "")
+        or ""
+    ).strip().lower()
+    return source or f"__unknown__:{id(article)}"
+
+
 def _dedupe_articles(articles: list) -> list:
     """基于 URL 或 (来源+标题) 对文章进行去重 (Deduplicate articles)"""
     seen: set[str] = set()
@@ -304,19 +332,47 @@ def _apply_diversity_caps(articles: list) -> list:
 
 
 def _build_pending_articles_table(articles: list, start: int, limit: int = 20) -> list[dict]:
-    """Build compact rows for the 'not analyzed yet' table in email."""
-    rows: list[dict] = []
+    """Build six-domain grouped rows for pending (not analyzed) articles."""
+    groups: dict[str, list[dict]] = {key: [] for key, _ in PENDING_SIX_DOMAINS}
     if limit <= 0 or start >= len(articles):
-        return rows
-    for article in articles[start : start + limit]:
-        rows.append(
+        return [
+            {"domain_key": key, "domain_label": label, "items": []}
+            for key, label in PENDING_SIX_DOMAINS
+        ]
+
+    def _domain_of(article: object) -> str:
+        text = (
+            f"{getattr(article, 'title', '')} "
+            f"{getattr(article, 'content_snippet', '')} "
+            f"{getattr(article, 'category', '')}"
+        ).lower()
+        if any(k in text for k in ("cyber", "security", "ot security", "ics", "iec 62443", "vulnerability", "attack")):
+            return "cybersecurity"
+        if any(k in text for k in ("robot", "humanoid", "amr", "cobot", "manipulator")):
+            return "robotics"
+        if any(k in text for k in ("automotive", "vehicle", "ev", "autonomous driving", "oem", "tier 1")):
+            return "automotive"
+        if any(k in text for k in ("supply chain", "logistics", "warehouse", "inventory", "procurement")):
+            return "supply_chain"
+        if any(k in text for k in ("energy", "grid", "power", "battery", "solar", "wind", "utility")):
+            return "energy"
+        return "factory"
+
+    selected = articles[start : start + limit]
+    for article in selected:
+        domain_key = _domain_of(article)
+        groups[domain_key].append(
             {
                 "category": getattr(article, "category", ""),
-                "title": getattr(article, "title", "")[:140],
+                "title": getattr(article, "title", ""),
                 "url": getattr(article, "url", ""),
             }
         )
-    return rows
+
+    return [
+        {"domain_key": key, "domain_label": label, "items": groups.get(key, [])}
+        for key, label in PENDING_SIX_DOMAINS
+    ]
 
 
 def _append_failure(
@@ -498,6 +554,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
     # 4.6 多样性配额（每源最多1篇 + YouTube 上限）
     ranked_articles = _apply_diversity_caps(ranked_articles)
     logger.info("[DIVERSITY] After caps: %s articles entering analysis", len(ranked_articles))
+    target_analysis_count = len(ranked_articles)
 
     # 5. 分析 (Analysis - LLM)
     try:
@@ -509,6 +566,77 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         result.exit_reason = "analysis stage failed"
         result.duration_seconds = round(time.perf_counter() - started, 3)
         return result
+
+    attempted_keys: set[str] = {_article_key(a) for a in ranked_articles}
+
+    if len(analyzed) < target_analysis_count:
+        logger.warning(
+            "[ANALYZE] analyzed %s/%s. Backfilling from remaining candidates.",
+            len(analyzed),
+            target_analysis_count,
+        )
+        successful_source_keys: set[str] = {
+            _article_source_key(a.original if getattr(a, "original", None) else a)
+            for a in analyzed
+        }
+
+        while len(analyzed) < target_analysis_count:
+            remaining = [
+                article
+                for article in sorted_relevant_articles
+                if _article_key(article) not in attempted_keys
+            ]
+            if not remaining:
+                break
+
+            need = target_analysis_count - len(analyzed)
+            batch: list = []
+
+            # Pass 1: Prefer new sources to preserve diversity.
+            for article in remaining:
+                if len(batch) >= need:
+                    break
+                source_key = _article_source_key(article)
+                if source_key in successful_source_keys:
+                    continue
+                batch.append(article)
+                successful_source_keys.add(source_key)
+
+            # Pass 2: If still short, allow any source from remaining pool.
+            if len(batch) < need:
+                selected = {_article_key(a) for a in batch}
+                for article in remaining:
+                    if len(batch) >= need:
+                        break
+                    key = _article_key(article)
+                    if key in selected:
+                        continue
+                    batch.append(article)
+                    selected.add(key)
+
+            if not batch:
+                break
+
+            attempted_keys.update(_article_key(a) for a in batch)
+            logger.info(
+                "[ANALYZE] Backfill batch: trying %s more article(s) (remaining need: %s)",
+                len(batch),
+                max(0, target_analysis_count - len(analyzed)),
+            )
+            backfill_analyzed = analyze_articles(batch, mock=args.mock)
+            analyzed.extend(backfill_analyzed)
+
+        if len(analyzed) < target_analysis_count:
+            logger.warning(
+                "[ANALYZE] Backfill exhausted. Final analyzed count: %s/%s",
+                len(analyzed),
+                target_analysis_count,
+            )
+
+    pending_candidates = [
+        article for article in sorted_relevant_articles if _article_key(article) not in attempted_keys
+    ]
+    pending_articles = _build_pending_articles_table(pending_candidates, start=0, limit=20)
 
     result.analyzed_count = len(analyzed)
     if not analyzed:

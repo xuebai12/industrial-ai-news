@@ -363,21 +363,6 @@ class NotionDeliveryService:
                 ]
             }
 
-        core_tech_name = self.find_property_name(
-            schema,
-            candidates=("核心技术", "Core Tech", "core_tech_points"),
-            expected_types=("multi_select", "rich_text"),
-        )
-        if core_tech_name and article.core_tech_points:
-            kind = schema.get(core_tech_name, {}).get("type")
-            if kind == "multi_select":
-                properties[core_tech_name] = {
-                    "multi_select": self.parse_multi_select_tags(article.core_tech_points)
-                }
-            elif kind == "rich_text":
-                properties[core_tech_name] = {
-                    "rich_text": [{"text": {"content": article.core_tech_points[:2000]}}]
-                }
 
         source_name = self.find_property_name(
             schema,
@@ -428,9 +413,6 @@ class NotionDeliveryService:
         if article.summary_en:
             blocks.append(self._paragraph(f"🇬🇧 {article.summary_en}"))
 
-        if article.core_tech_points:
-            blocks.append(self._heading3("🔬 核心技术"))
-            blocks.append(self._paragraph(article.core_tech_points))
 
         if article.german_context:
             blocks.append(self._heading3("🏭 德国市场背景"))

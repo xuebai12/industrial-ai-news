@@ -11,7 +11,6 @@ def _article() -> AnalyzedArticle:
         title_zh="中文标题",
         title_en="English Title",
         title_de="Deutscher Titel",
-        core_tech_points="Kernel details for mechanism fallback.",
         german_context="In der Montagelinie wird KI fuer visuelle Qualitaetspruefung eingesetzt.",
         source_name="Source",
         source_url="https://example.com",

@@ -20,6 +20,7 @@ class Article:
     video_views: int | None = None  # YouTube 播放量（若可提取）
     relevance_score: int = 0  # 关联度评分 (关键词匹配得分)
     target_personas: list[str] = field(default_factory=list) # 目标受众标签
+    domain_tags: list[str] = field(default_factory=list)  # 六大领域标签 (multi-label)
 
 
 @dataclass
@@ -32,7 +33,6 @@ class AnalyzedArticle:
     title_zh: str              # 中文标题
     title_en: str              # 英文标题
     title_de: str              # 德文标题 (German Title)
-    core_tech_points: str      # 核心技术要点 (关键技术名词)
     german_context: str        # 德方/行业应用背景
     source_name: str           # 来源名称 (e.g. "Fraunhofer IPA")
     source_url: str            # 原始链接

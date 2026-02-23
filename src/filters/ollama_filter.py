@@ -49,6 +49,45 @@ FILTER_RATE_LIMIT_BACKOFF_SECONDS = float(os.getenv("KIMI_FILTER_RATE_LIMIT_BACK
 FILTER_RATE_LIMIT_MAX_RETRIES = int(os.getenv("KIMI_FILTER_RATE_LIMIT_MAX_RETRIES", "1"))
 _filter_rate_lock = threading.Lock()
 _filter_last_request_ts = 0.0
+NONE_RATE_ALERT_THRESHOLD = float(os.getenv("LLM_FILTER_NONE_ALERT_THRESHOLD", "0.3"))
+
+DOMAIN_ORDER = [
+    "factory",
+    "robotics",
+    "automotive",
+    "supply_chain",
+    "energy",
+    "cybersecurity",
+]
+
+DOMAIN_KEYWORDS: dict[str, list[str]] = {
+    "factory": [
+        "factory", "manufacturing", "shopfloor", "production line", "process optimization",
+        "quality inspection", "defect detection", "predictive maintenance", "condition monitoring",
+        "plc", "scada", "mes", "oee",
+    ],
+    "robotics": [
+        "robot", "robotics", "cobot", "amr", "agv", "humanoid", "manipulator", "end effector",
+        "robot integration", "isaac", "embodied ai",
+    ],
+    "automotive": [
+        "automotive", "vehicle", "ev", "oem", "tier 1", "autonomous driving", "battery pack",
+        "车", "汽车", "车企",
+    ],
+    "supply_chain": [
+        "supply chain", "logistics", "warehouse", "inventory", "procurement", "fulfillment",
+        "demand forecasting", "material flow",
+    ],
+    "energy": [
+        "energy", "power", "grid", "utility", "solar", "wind", "battery", "substation",
+        "power plant", "电网", "能源",
+    ],
+    "cybersecurity": [
+        "cybersecurity", "cyber security", "ot security", "ics security", "iec 62443", "threat",
+        "vulnerability", "intrusion", "anomaly detection", "incident response", "ransomware",
+        "zero trust", "siem", "soc", "nerc cip",
+    ],
+}
 
 # 宽进：补充更通用的工业 AI 主题词，覆盖标题/摘要中的常见表达
 BROAD_KEYWORDS = [
@@ -258,6 +297,38 @@ def keyword_score(article: Article) -> tuple[int, list[str]]:
     return score, list(personas)
 
 
+def _infer_domain_tags(article: Article) -> list[str]:
+    """
+    Infer up to 3 six-domain tags from title/snippet/category text.
+    如果没有命中，默认返回 ["factory"].
+    """
+    text = _normalize_text(
+        f"{article.title} {article.content_snippet} {article.category}"
+    )
+    domain_scores: dict[str, int] = {domain: 0 for domain in DOMAIN_ORDER}
+
+    for domain, keywords in DOMAIN_KEYWORDS.items():
+        score = 0
+        for kw in keywords:
+            if _contains_keyword(text, kw):
+                score += 1
+        domain_scores[domain] = score
+
+    ranked = sorted(
+        DOMAIN_ORDER,
+        key=lambda d: (-domain_scores[d], DOMAIN_ORDER.index(d)),
+    )
+    tags = [domain for domain in ranked if domain_scores[domain] > 0][:3]
+
+    if not tags:
+        logger.debug(
+            "  domain tag fallback to factory (no keyword hit): %s",
+            article.title[:80],
+        )
+        return ["factory"]
+    return tags
+
+
 def llm_relevance_check(article: Article) -> bool | None:
     """
     使用 LLM Cloud 进行二次相关性校验 (Secondary Relevance Check using LLM).
@@ -356,79 +427,81 @@ def llm_relevance_check(article: Article) -> bool | None:
 def filter_articles(articles: list[Article], skip_llm: bool = False) -> list[Article]:
     """
     双重过滤流水线 (Two-stage filtering pipeline):
-    1. Keyword scoring (关键词评分) — 必须达到阈值
-    2. LLM validation (LLM 校验) — 可选步骤 (skip_llm=True 跳过)
+    1. Keyword scoring (关键词评分) — 仅用于排序和优先级
+    2. LLM validation (LLM 校验) — 仅 LLM=YES 才允许进入结果集
 
     Returns:
-        list[Article]: 按相关性分数降序排列的文章列表
+        list[Article]: 按相关性分数降序排列，且包含 domain_tags 的文章列表
     """
     logger.info(f"[FILTER] Starting filter on {len(articles)} articles")
+
+    if skip_llm:
+        logger.warning("[FILTER] skip_llm=True ignored by strict gate policy (LLM YES only)")
 
     scored: list[Article] = []
     for article in articles:
         score, personas = keyword_score(article)
         article.relevance_score = score
-        # We need to add target_personas to Article model first? 
-        # Wait, Article model is raw, AnalyzedArticle has target_personas. 
-        # But we filter Article objects here. 
-        # Let's dynamically attach it or update Article model.
-        # Check src/models.py again. Article does NOT have target_personas.
-        # Decision: Add target_personas to Article model as well to carry it through.
-        setattr(article, "target_personas", personas) # Temporary dynamic attribute until models.py updated for Article
+        article.target_personas = personas
+        article.domain_tags = []
+        scored.append(article)
 
-        if score >= RELEVANCE_THRESHOLD:
-            scored.append(article)
+    result: list[Article] = []
+    llm_yes_count = 0
+    llm_no_count = 0
+    llm_none_count = 0
+    domain_distribution: dict[str, int] = {domain: 0 for domain in DOMAIN_ORDER}
 
-    logger.info(f"[FILTER] {len(scored)}/{len(articles)} passed keyword threshold (>={RELEVANCE_THRESHOLD})")
-
-    if skip_llm:
-        logger.info("[FILTER] Skipping LLM validation (keyword-only mode)")
-        result = scored
-    else:
-        result = []
-        with ThreadPoolExecutor(max_workers=MAX_CONCURRENCY) as executor:
-            future_to_article = {
-                executor.submit(llm_relevance_check, article): article
-                for article in scored
-            }
-            for future in future_to_article:
-                article = future_to_article[future]
-                try:
-                    llm_result = future.result()
-                except Exception as e:
-                    logger.error(f"LLM check failed for {article.title[:30]}: {e}")
-                    llm_result = None
-
-                if llm_result is True:
-                    result.append(article)
-                    continue
-                if llm_result is None and article.relevance_score >= 2:
-                    # 严出兜底：仅在 LLM 不可判定时放行高分项，避免整批为 0。
-                    result.append(article)
-        logger.info(f"[FILTER] {len(result)}/{len(scored)} passed LLM Cloud validation")
-
-    # Ensure a minimum daily volume for digest stability.
-    # Only pull in candidates with score >= 2 to avoid low-quality fallback content.
-    if MIN_RELEVANT_ARTICLES and len(result) < MIN_RELEVANT_ARTICLES:
-        existing_keys = {
-            f"{(a.url or '').strip()}|{(a.title or '').strip().lower()}"
-            for a in result
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENCY) as executor:
+        future_to_article = {
+            executor.submit(llm_relevance_check, article): article
+            for article in scored
         }
-        for candidate in sorted(scored, key=lambda a: a.relevance_score, reverse=True):
-            if candidate.relevance_score < 2:
-                continue  # Skip low-scored items even in fallback
-            key = f"{(candidate.url or '').strip()}|{(candidate.title or '').strip().lower()}"
-            if key in existing_keys:
-                continue
-            result.append(candidate)
-            existing_keys.add(key)
-            if len(result) >= MIN_RELEVANT_ARTICLES:
-                break
-        logger.info(
-            "[FILTER] Applied minimum-volume fallback: now %s items (target=%s, min_score=2)",
-            len(result),
-            MIN_RELEVANT_ARTICLES,
+        for future in future_to_article:
+            article = future_to_article[future]
+            try:
+                llm_result = future.result()
+            except Exception as e:
+                logger.error(f"LLM check failed for {article.title[:30]}: {e}")
+                llm_result = None
+
+            if llm_result is True:
+                llm_yes_count += 1
+                article.domain_tags = _infer_domain_tags(article)
+                for tag in article.domain_tags:
+                    domain_distribution[tag] = domain_distribution.get(tag, 0) + 1
+                logger.debug(
+                    "  accepted by LLM YES with domain_tags=%s: %s",
+                    article.domain_tags,
+                    article.title[:80],
+                )
+                result.append(article)
+            elif llm_result is False:
+                llm_no_count += 1
+            else:
+                llm_none_count += 1
+
+    total_llm = max(1, llm_yes_count + llm_no_count + llm_none_count)
+    none_rate = llm_none_count / total_llm
+    logger.info(
+        "[FILTER] LLM verdicts: YES=%s NO=%s NONE=%s (none_rate=%.1f%%)",
+        llm_yes_count,
+        llm_no_count,
+        llm_none_count,
+        none_rate * 100,
+    )
+    if none_rate > NONE_RATE_ALERT_THRESHOLD:
+        logger.warning(
+            "[FILTER] LLM NONE rate high (%.1f%% > %.1f%% threshold)",
+            none_rate * 100,
+            NONE_RATE_ALERT_THRESHOLD * 100,
         )
+    logger.info(
+        "[FILTER] %s/%s passed strict LLM YES gate; domain_distribution=%s",
+        len(result),
+        len(scored),
+        domain_distribution,
+    )
 
     # Sort by relevance score descending (按分数降序排序)
     result.sort(key=lambda a: a.relevance_score, reverse=True)

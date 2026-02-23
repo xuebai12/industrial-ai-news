@@ -22,7 +22,12 @@ _client: OpenAI | None = None
 
 # Local models need stable JSON and lower per-request load to avoid timeout storms.
 IS_LOCAL = API_PROVIDER == "Local_Ollama"
-MAX_TOKENS = int(os.getenv("KIMI_MAX_TOKENS", "1400" if IS_LOCAL else "800"))
+if IS_LOCAL:
+    _requested_local_max_tokens = int(os.getenv("KIMI_MAX_TOKENS", "1400"))
+    _local_max_tokens_cap = int(os.getenv("KIMI_LOCAL_MAX_TOKENS_CAP", "1400"))
+    MAX_TOKENS = min(_requested_local_max_tokens, _local_max_tokens_cap)
+else:
+    MAX_TOKENS = int(os.getenv("KIMI_MAX_TOKENS", "800"))
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("KIMI_TIMEOUT_SECONDS", "60"))
 MAX_CONCURRENCY = max(1, int(os.getenv("KIMI_MAX_CONCURRENCY", "1" if IS_LOCAL else "4")))
 CLIENT_MAX_RETRIES = int(os.getenv("KIMI_CLIENT_MAX_RETRIES", "1" if IS_LOCAL else "0"))
@@ -31,6 +36,8 @@ RATE_LIMIT_BACKOFF_SECONDS = float(os.getenv("KIMI_RATE_LIMIT_BACKOFF_SECONDS", 
 MAX_RATE_LIMIT_RETRIES = int(os.getenv("KIMI_RATE_LIMIT_MAX_RETRIES", "2"))
 # For local inference, keep retries conservative to avoid long backlogs.
 LOCAL_ENABLE_FINAL_RETRY = os.getenv("LOCAL_ENABLE_FINAL_RETRY", "false").lower() == "true"
+LOCAL_SNIPPET_LIMIT = int(os.getenv("KIMI_LOCAL_SNIPPET_LIMIT", "300"))
+LOCAL_RETRY_SNIPPET_LIMIT = int(os.getenv("KIMI_LOCAL_RETRY_SNIPPET_LIMIT", "220"))
 _rate_lock = threading.Lock()
 _last_request_ts = 0.0
 
@@ -61,25 +68,101 @@ def _extract_json(text: str) -> dict | None:
 
     raw = text.strip()
 
+    def _escape_controls_in_strings(s: str) -> str:
+        """Escape raw control chars inside quoted strings (invalid JSON from local models)."""
+        out: list[str] = []
+        in_string = False
+        escaped = False
+        for ch in s:
+            if escaped:
+                out.append(ch)
+                escaped = False
+                continue
+            if ch == "\\":
+                out.append(ch)
+                if in_string:
+                    escaped = True
+                continue
+            if ch == '"':
+                out.append(ch)
+                in_string = not in_string
+                continue
+            if in_string:
+                if ch == "\n":
+                    out.append("\\n")
+                    continue
+                if ch == "\r":
+                    out.append("\\r")
+                    continue
+                if ch == "\t":
+                    out.append("\\t")
+                    continue
+                if ord(ch) < 0x20:
+                    continue
+            out.append(ch)
+        return "".join(out)
+
     def _try_parse(candidate: str) -> dict | None:
         s = (candidate or "").strip()
         if not s:
             return None
         try:
-            return json.loads(s)
+            parsed = json.loads(s)
+            return parsed if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
             # Common repairs for local model outputs
             repaired = s.replace("“", '"').replace("”", '"').replace("’", "'")
             repaired = repaired.replace("\ufeff", "")
             repaired = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F]', "", repaired)
+            repaired = _escape_controls_in_strings(repaired)
             repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
             try:
-                return json.loads(repaired)
+                parsed = json.loads(repaired)
+                return parsed if isinstance(parsed, dict) else None
             except json.JSONDecodeError:
                 return None
 
+    def _close_truncated_json(candidate: str) -> str:
+        """Best-effort close for truncated JSON text (local model length cutoffs)."""
+        s = (candidate or "").strip()
+        if not s:
+            return s
+
+        brace_depth = 0
+        in_string = False
+        escaped = False
+
+        for ch in s:
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\" and in_string:
+                escaped = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                brace_depth += 1
+            elif ch == "}":
+                brace_depth = max(0, brace_depth - 1)
+
+        repaired = s
+        if in_string:
+            repaired += '"'
+        if brace_depth > 0:
+            repaired += "}" * brace_depth
+        return repaired
+
     # Strategy 1: Try direct parse (ideal case)
     parsed = _try_parse(raw)
+    if parsed is not None:
+        return parsed
+
+    # Strategy 1b: Recover from truncated tail (e.g. finish_reason=length)
+    parsed = _try_parse(_close_truncated_json(raw))
     if parsed is not None:
         return parsed
 
@@ -128,73 +211,95 @@ def _extract_json(text: str) -> dict | None:
             if parsed is not None:
                 return parsed
 
+        # Strategy 3c: Truncated mid-string/mid-object (unclosed quote + missing braces)
+        parsed = _try_parse(_close_truncated_json(tail))
+        if parsed is not None:
+            return parsed
+
     return None
 
 
-# 系统提示词 (System Prompt)
-# 指导 LLM 以特定 JSON 格式输出分析结果
-SYSTEM_PROMPT = """\
-Role: 你是一位工业 AI 研究与落地分析师，面向制造业决策与实施团队输出可执行解读。
+def _json_error_message(exc: json.JSONDecodeError) -> str:
+    return f"{exc.msg} at line {exc.lineno}, column {exc.colno} (char {exc.pos})"
 
-Task: 请针对抓取到的技术动态，进行“一文两看”分析，分别面向“学生（英文模板）”和“行业技术员（德文模板）”。
 
-Constraint (核心限制):
-1. 删除固定工具绑定：不要强制关联 Siemens TIA Portal 或 Jupyter Notebook。
-2. 领域对齐：优先贴合 6 大领域（工厂、机器人、汽车、供应链、能源、网络安全），并可映射工厂 4 子类（设计研发、工艺优化、质量缺陷、运维预测）。
-3. 语言一致性：
-   - student 输出依赖英文字段；
-   - technician 输出依赖德文字段；
-   - 中文来源也必须给出可用的英文/德文翻译字段。
-4. 模板字段约束（必须严格遵守）：
-   - german_context（对应 Kernfokus）：
-     - 德语 2-4 条短句；
-     - 每条必须同时包含“工业场景（在哪个流程/车间/系统）+ AI 应用方式（AI如何被用）”；
-     - 禁止空泛表述，禁止只写政策或口号。
-   - technician_analysis_de（对应 Kernmechanismus）：
-     - 德语 2-4 条短句；
-     - 每条包含“通俗比喻 + 运作步骤 + 1个落地动作”；
-     - 写给没有编程经验的一线人员，语言直白可执行。
-   - simple_explanation：
-     - 仅给 student 使用；
-     - 固定 2 句中文结论，直接说明 AI 做了什么和带来什么变化。
-5. 按“每个点做 AI 解读”输出：每条内容都要回答这 3 个问题：
-   - AI 在这里做了什么（感知/预测/优化/决策）？
-   - 对业务流程带来什么变化（效率/质量/风险/成本）？
-   - 落地需要哪些条件（数据、系统、组织、合规）？
+def _diagnose_json_parse_error(text: str) -> str:
+    """Return best-effort JSON parse diagnostics with line/column."""
+    raw = (text or "").strip()
+    if not raw:
+        return "empty response text"
 
-这是背景设定。现在，作为分析师，请分析给定文章，并输出**纯 JSON**（无其他文字）。
+    candidates: list[tuple[str, str]] = [("raw", raw)]
 
-JSON 格式:
-{
-    "category_tag": "类别",
-    "title_zh": "中文标题",
-    "title_en": "English Title",
-    "title_de": "Deutscher Titel (Professional German)",
-    "summary_zh": "一句话中文总结",
-    "summary_en": "One-sentence English summary",
-    "summary_de": "Deutsche Zusammenfassung (One-sentence German summary)",
-    "core_tech_points": "核心技术要点",
-    "german_context": "德方应用背景",
-    "tool_stack": "使用的软件工具",
-    "simple_explanation": "中文简短解读：AI做了什么、带来什么变化、落地要点",
-    "technician_analysis_de": "Deutsch, 2-4 kurze Punkte: Urteil + Business-Impact + naechster Umsetzungsschritt."
-}
+    repaired = raw.replace("“", '"').replace("”", '"').replace("’", "'")
+    repaired = repaired.replace("\ufeff", "")
+    repaired = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F]', "", repaired)
+    repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
+    if repaired != raw:
+        candidates.append(("repaired", repaired))
 
-类别选项: Digital Twin / Industry 4.0 / Simulation / AI / Research
-只输出JSON，不要任何解释文字。
-"""
+    brace_start = raw.find("{")
+    if brace_start != -1:
+        tail = raw[brace_start:]
+        depth = 0
+        in_string = False
+        escaped = False
+        for ch in tail:
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\" and in_string:
+                escaped = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+        tail_closed = tail + ("}" * max(0, depth))
+        if tail_closed != tail:
+            candidates.append(("tail_autoclose", tail_closed))
 
-SIMPLE_JSON_PROMPT = (
-    'You are a JSON generator. Output ONLY a JSON object with these keys: '
-    '"category_tag", "title_zh", "title_en", "title_de", "summary_zh", "summary_en", "summary_de", '
-    '"core_tech_points", "german_context", "tool_stack", "simple_explanation", "technician_analysis_de". '
-    "No explanation, no markdown, ONLY JSON. "
-    "Do not force Siemens TIA Portal or Jupyter references. "
-    "Align to 6 domains: factory, robotics, automotive, supply chain, energy, cybersecurity. "
-    "german_context is Kernfokus: provide 2-4 German short points, each must include industrial scene + how AI is applied. "
-    "technician_analysis_de is Kernmechanismus: 2-4 German short points with metaphor + mechanism steps + concrete next action. "
-    "simple_explanation is student-only and must be exactly 2 Chinese sentences. "
-    "For each key point, reflect AI function, business impact, and implementation requirement."
+    errors: list[str] = []
+    for label, candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return f"{label}: parseable JSON object (extractor likely failed on formatting path)"
+            return f"{label}: parsed JSON but top-level type is {type(parsed).__name__}, expected object"
+        except json.JSONDecodeError as exc:
+            errors.append(f"{label}: {_json_error_message(exc)}")
+
+    return " | ".join(errors) if errors else "unknown parse failure"
+
+
+# Prompt design:
+# - STUDENT_EN_PROMPT: concise English brief for student-facing outputs
+# - TECHNICIAN_DE_PROMPT: concise German brief for technician-facing outputs
+# Both keep the key constraints from the original long Chinese prompt.
+STUDENT_EN_PROMPT = (
+    "Extract key info into a JSON object with strictly these keys: "
+    '"category_tag","title_zh","title_en","title_de","summary_zh","summary_en","summary_de",'
+    '"german_context","tool_stack","simple_explanation","technician_analysis_de". '
+    "Return ONLY valid JSON. No markdown. No reasoning. No tags like <think>. "
+    "Use predefined tags (factory, robotics, automotive, supply chain, energy, cybersecurity) for category_tag. "
+    "Write 2 clear Chinese sentences for simple_explanation. "
+    "german_context and technician_analysis_de MUST be strictly in German. "
+    "Fill other fields concisely based on the content. Use empty strings if uncertain."
+)
+TECHNICIAN_DE_PROMPT = (
+    "Erstelle ein reines JSON-Objekt mit exakt diesen Schlüsseln: "
+    '"category_tag","title_zh","title_en","title_de","summary_zh","summary_en","summary_de",'
+    '"german_context","tool_stack","simple_explanation","technician_analysis_de". '
+    "Nur gültiges JSON ausgeben. Kein Markdown. Keine Erklärungen. Keine <think> Tags. "
+    "Zielgruppe für technician_analysis_de: Ein durchschnittlicher Facharbeiter in der Maschinenbauindustrie. "
+    "german_context: Kurzer industrieller Kontext (Deutsch). "
+    "technician_analysis_de: Kurze technische Analyse und nächster Schritt (Deutsch). MUSS sehr einfach und allgemein verständlich sein, ohne Fachjargon. "
+    "Einfache, direkte Sprache."
 )
 
 
@@ -211,7 +316,6 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
             title_zh=f"[测试] {article.title} (CN)",
             title_en=f"[TEST] {article.title} (EN)",
             title_de=f"[TEST] {article.title} (DE)",
-            core_tech_points="Mock core tech points.",
             german_context="Mock context.",
             source_name=article.source,
             source_url=article.url,
@@ -227,7 +331,7 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
 
     client = _get_client()
 
-    snippet_limit = 450 if IS_LOCAL else 800
+    snippet_limit = LOCAL_SNIPPET_LIMIT if IS_LOCAL else 800
     user_content = (
         f"标题: {article.title}\n"
         f"来源: {article.source}\n"
@@ -236,17 +340,42 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
         f"请只输出JSON。"
     )
 
+    def _needs_technician_enhance(payload: dict | None) -> bool:
+        if not payload:
+            return True
+        german_context = str(payload.get("german_context", "") or "").strip()
+        technician_de = str(payload.get("technician_analysis_de", "") or "").strip()
+        return len(german_context) < 24 or len(technician_de) < 24
+
+    def _merge_payload(base: dict | None, patch: dict | None) -> dict | None:
+        if base is None:
+            return patch
+        if patch is None:
+            return base
+        merged = dict(base)
+        for key, value in patch.items():
+            if isinstance(value, str):
+                if value.strip():
+                    merged[key] = value
+            elif value is not None:
+                merged[key] = value
+        return merged
+
     # Attempt strategy:
-    # - Local: start with simplified JSON prompt for stability
+    # - Local: student prompt first, then technician prompt to strengthen DE fields
     # - Remote/cloud: full prompt first, then simplified fallback
     if IS_LOCAL:
-        data = _call_and_parse(client, SIMPLE_JSON_PROMPT, user_content)
+        student_data = _call_and_parse(client, STUDENT_EN_PROMPT, user_content)
+        tech_data = None
+        if _needs_technician_enhance(student_data):
+            tech_data = _call_and_parse(client, TECHNICIAN_DE_PROMPT, user_content)
+        data = _merge_payload(student_data, tech_data)
     else:
-        data = _call_and_parse(client, SYSTEM_PROMPT, user_content)
+        data = _call_and_parse(client, STUDENT_EN_PROMPT, user_content)
 
     # Cloud fallback: simplified schema + shorter input can recover empty/non-JSON responses.
     if data is None and not IS_LOCAL:
-        logger.warning(f"[{API_PROVIDER}] Retry with simplified JSON prompt for '{article.title[:40]}'")
+        logger.warning(f"[{API_PROVIDER}] Retry with student prompt for '{article.title[:40]}'")
         short_user_content = (
             f"title: {article.title[:180]}\n"
             f"source: {article.source}\n"
@@ -254,7 +383,7 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
             f"snippet: {article.content_snippet[:350]}\n"
             f"reply with JSON only."
         )
-        data = _call_and_parse(client, SIMPLE_JSON_PROMPT, short_user_content)
+        data = _call_and_parse(client, STUDENT_EN_PROMPT, short_user_content)
 
     # --- Attempt 3: Retry with strict minimal schema + shorter input (尝试 3: 最小化输入重试) ---
     if data is None and IS_LOCAL:
@@ -263,42 +392,35 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
             f"title: {article.title[:180]}\n"
             f"source: {article.source}\n"
             f"url: {article.url}\n"
-            f"snippet: {article.content_snippet[:350]}\n"
+            f"snippet: {article.content_snippet[:LOCAL_RETRY_SNIPPET_LIMIT]}\n"
         )
         minimal_prompt = (
             'Return ONLY valid JSON. No markdown. No explanation. '
             'Required keys: category_tag,title_zh,title_en,title_de,summary_zh,summary_en,summary_de,'
-            'core_tech_points,german_context,tool_stack,simple_explanation,technician_analysis_de. '
-            'Use empty string if unknown.'
+            'german_context,tool_stack,simple_explanation,technician_analysis_de. '
+            'Use empty string if unknown. '
+            'simple_explanation must be exactly 2 Chinese sentences. '
+            'german_context and technician_analysis_de should be concise German operational points.'
         )
         data = _call_and_parse(client, minimal_prompt, minimal_user_content)
 
     # Optional final retry for local model. Disabled by default to prevent timeout storms.
     if data is None and IS_LOCAL and LOCAL_ENABLE_FINAL_RETRY:
-        logger.warning(f"[{API_PROVIDER}] Final retry with full prompt for '{article.title[:40]}'")
-        data = _call_and_parse(client, SYSTEM_PROMPT, user_content)
+        logger.warning(f"[{API_PROVIDER}] Final retry with technician prompt for '{article.title[:40]}'")
+        final_retry_content = (
+            f"title: {article.title[:140]}\n"
+            f"source: {article.source}\n"
+            f"url: {article.url}\n"
+            f"snippet: {article.content_snippet[:180]}\n"
+            "reply with JSON only."
+        )
+        data = _call_and_parse(client, TECHNICIAN_DE_PROMPT, final_retry_content)
 
     if data is None:
         logger.error(f"[{API_PROVIDER}] All parse attempts failed for '{article.title[:40]}'")
-        # Return fallback object (返回兜底对象，避免流程中断)
-        return AnalyzedArticle(
-            category_tag=article.category or "Other",
-            title_zh=article.title,
-            title_en=article.title,
-            title_de=article.title,
-            core_tech_points="N/A (analysis fallback)",
-            german_context=article.source,
-            source_name=article.source,
-            source_url=article.url,
-            summary_zh="本地模型分析失败，建议切换云端模型后重试。",
-            summary_en="Local model analysis failed. Please switch to a cloud model and retry.",
-            summary_de="Lokale Modellanalyse fehlgeschlagen. Bitte auf ein Cloud-Modell wechseln und erneut versuchen.",
-            tool_stack="N/A",
-            simple_explanation="模型未返回可解析的结构化结果。",
-            technician_analysis_de="Kein auswertbares Modell-Ergebnis verfügbar.",
-            original=article,
-            target_personas=article.target_personas, # Pass through
-        )
+        # Skip this article when model output is empty/unparseable.
+        # 上游会尝试从尚未分析的候选中补位。
+        return None
 
     # Helper to force string type
     def _ensure_str(value: any) -> str:
@@ -321,7 +443,6 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
         title_zh=_ensure_str(data.get("title_zh", article.title)),
         title_en=_ensure_str(data.get("title_en", article.title)),
         title_de=_ensure_str(data.get("title_de", article.title)),
-        core_tech_points=_ensure_str(data.get("core_tech_points", "")),
         german_context=_ensure_str(data.get("german_context", "")),
         source_name=_ensure_str(article.source),
         source_url=_ensure_str(article.url),
@@ -341,6 +462,30 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
 
 def _call_and_parse(client: OpenAI, system_prompt: str, user_content: str) -> dict | None:
     """Call the model and attempt to parse JSON from the response."""
+    def _message_debug_snapshot(message: object) -> str:
+        """Compact structural snapshot for empty-response diagnosis."""
+        try:
+            model_dump = getattr(message, "model_dump", None)
+            if callable(model_dump):
+                dumped = model_dump()
+                content = dumped.get("content")
+                content_type = type(content).__name__
+                content_len = len(content) if isinstance(content, (list, str)) else 0
+                keys = sorted(list(dumped.keys()))
+                return (
+                    f"keys={keys}; content_type={content_type}; content_len={content_len}; "
+                    f"tool_calls={bool(dumped.get('tool_calls'))}; refusal={bool(dumped.get('refusal'))}"
+                )
+        except Exception:
+            pass
+
+        content = getattr(message, "content", None)
+        return (
+            f"fallback content_type={type(content).__name__}; "
+            f"tool_calls={bool(getattr(message, 'tool_calls', None))}; "
+            f"refusal={bool(getattr(message, 'refusal', None))}"
+        )
+
     def _message_to_text(message: object) -> str:
         content = getattr(message, "content", None)
         if isinstance(content, str):
@@ -354,6 +499,19 @@ def _call_and_parse(client: OpenAI, system_prompt: str, user_content: str) -> di
                     text = item.get("text") or item.get("content")
                     if isinstance(text, str):
                         parts.append(text)
+                else:
+                    # OpenAI/Ollama compat may return typed content-part objects.
+                    text = getattr(item, "text", None) or getattr(item, "content", None)
+                    if isinstance(text, str):
+                        parts.append(text)
+                    elif isinstance(text, list):
+                        for sub in text:
+                            if isinstance(sub, str):
+                                parts.append(sub)
+                            elif isinstance(sub, dict):
+                                sub_text = sub.get("text") or sub.get("content")
+                                if isinstance(sub_text, str):
+                                    parts.append(sub_text)
             return "\n".join([p for p in parts if p]).strip()
 
         # Some providers put text in non-standard fields.
@@ -404,14 +562,25 @@ def _call_and_parse(client: OpenAI, system_prompt: str, user_content: str) -> di
             if not raw:
                 finish_reason = getattr(response.choices[0], "finish_reason", "unknown")
                 logger.warning(f"[{API_PROVIDER}] Empty response from model (finish_reason={finish_reason})")
+                logger.warning(
+                    f"[{API_PROVIDER}] Empty-response message snapshot: "
+                    f"{_message_debug_snapshot(response.choices[0].message)}"
+                )
                 return None
 
             raw = raw.strip()
-            logger.info(f"[{API_PROVIDER}] Raw response ({len(raw)} chars): {raw[:300]}...")
+            preview = raw[:300]
+            suffix = "..." if len(raw) > 300 else ""
+            logger.info(f"[{API_PROVIDER}] Raw response ({len(raw)} chars): {preview}{suffix}")
 
             data = _extract_json(raw)
             if data is None:
-                logger.warning(f"[{API_PROVIDER}] Could not extract JSON from response")
+                finish_reason = getattr(response.choices[0], "finish_reason", "unknown")
+                parse_error = _diagnose_json_parse_error(raw)
+                logger.warning(
+                    f"[{API_PROVIDER}] Could not extract JSON from response "
+                    f"(finish_reason={finish_reason}; parse_error={parse_error})"
+                )
                 return None
 
             return data

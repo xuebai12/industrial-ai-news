@@ -17,7 +17,6 @@ PREFERRED_NAMES = {
     "category": ["类别", "Category", "category"],
     "title": ["标题", "Title", "title"],
     "url": ["原文链接", "URL", "url", "Link", "Source URL"],
-    "core_tech": ["核心技术", "Core Tech", "core_tech_points"],
     "date": ["日期", "Date", "date"],
 }
 
@@ -163,9 +162,6 @@ def main() -> int:
     )
     title_prop = find_property(schema, "title", PREFERRED_NAMES["title"])
     url_prop = find_property(schema, "url", PREFERRED_NAMES["url"])
-    core_tech_prop = find_property(schema, "multi_select", PREFERRED_NAMES["core_tech"]) or find_property(
-        schema, "rich_text", PREFERRED_NAMES["core_tech"]
-    )
     date_prop = find_property(schema, "date", PREFERRED_NAMES["date"])
 
     if not score_prop:
@@ -202,7 +198,6 @@ def main() -> int:
                 "category": _get(category_prop),
                 "title": _get(title_prop),
                 "url": _get(url_prop),
-                "core_tech": _get(core_tech_prop),
                 "date": _get(date_prop),
                 "created_time": page.get("created_time"),
                 "last_edited_time": page.get("last_edited_time"),
@@ -222,7 +217,6 @@ def main() -> int:
             "category": category_prop,
             "title": title_prop,
             "url": url_prop,
-            "core_tech": core_tech_prop,
             "date": date_prop,
         },
         "total_pages_queried": len(pages),
