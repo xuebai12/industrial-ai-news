@@ -2,9 +2,15 @@ import unittest
 from unittest.mock import MagicMock, patch
 import os
 import sys
+import types
 
 # Ensure src is in path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+if "openai" not in sys.modules:
+    openai_stub = types.ModuleType("openai")
+    openai_stub.OpenAI = object
+    sys.modules["openai"] = openai_stub
 
 from src.models import Article
 from src.filters import ollama_filter
@@ -20,9 +26,9 @@ class TestOllamaFilterLogic(unittest.TestCase):
 
     @patch('src.filters.ollama_filter.keyword_score')
     @patch('src.filters.ollama_filter.llm_relevance_check')
-    def test_filter_logic(self, mock_llm, mock_kw):
+    def test_filter_logic_yes_only_gate(self, mock_llm, mock_kw):
         # Setup mocks
-        mock_kw.side_effect = lambda a: (3, ['student']) # All pass keyword check
+        mock_kw.side_effect = lambda a: (3, ['student'])  # Scoring kept for ranking only
 
         def llm_side_effect(article):
             if "Keep" in article.title and "Maybe" not in article.title:
@@ -35,56 +41,32 @@ class TestOllamaFilterLogic(unittest.TestCase):
 
         mock_llm.side_effect = llm_side_effect
 
-        # Run filter
-        # We need to ensure relevance score is set correctly.
-        # keyword_score returns score, personas.
-        # filter_articles sets article.relevance_score = score
-
-        # However, for "Maybe Keep Me", we need score >= 2 for fallback logic.
-        # keyword_score returns 3, so fallback logic applies (3 >= 2).
-
-        # We need to mock MIN_RELEVANT_ARTICLES to 0 to avoid that logic interfering
-        with patch('src.filters.ollama_filter.MIN_RELEVANT_ARTICLES', 0):
-            result = ollama_filter.filter_articles(self.articles, skip_llm=False)
+        result = ollama_filter.filter_articles(self.articles, skip_llm=False)
 
         # Verify
-        # "Keep Me" -> True -> Kept
-        # "Drop Me" -> False -> Dropped
-        # "Maybe Keep Me" -> None, score 3 -> Kept (fallback)
-
+        # YES -> kept; NO/NONE -> dropped
         titles = [a.title for a in result]
         self.assertIn("Keep Me", titles)
-        self.assertIn("Maybe Keep Me", titles)
+        self.assertNotIn("Maybe Keep Me", titles)
         self.assertNotIn("Drop Me", titles)
-        self.assertEqual(len(result), 2)
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0].domain_tags)
 
     @patch('src.filters.ollama_filter.keyword_score')
     @patch('src.filters.ollama_filter.llm_relevance_check')
-    def test_filter_logic_fallback_fail(self, mock_llm, mock_kw):
-        # Test case where Maybe article has low score
+    def test_filter_none_is_rejected_even_with_high_score(self, mock_llm, mock_kw):
+        mock_kw.side_effect = lambda a: (10, ['student'])
+        mock_llm.side_effect = lambda a: None
+        articles = [Article(title="Maybe Drop Me", url="u3", source="s", content_snippet="c", language="en", category="t")]
+        result = ollama_filter.filter_articles(articles, skip_llm=False)
+        self.assertEqual(len(result), 0)
 
-        def kw_side_effect(article):
-            if "Maybe" in article.title:
-                return 1, ['student'] # Low score < 2 but >= RELEVANCE_THRESHOLD (1)
-            return 3, ['student']
-
-        mock_kw.side_effect = kw_side_effect
-
-        def llm_side_effect(article):
-            if "Maybe" in article.title:
-                return None
-            return True # Others keep
-
-        mock_llm.side_effect = llm_side_effect
-
-        articles = [
-            Article(title="Maybe Drop Me", url="u3", source="s", content_snippet="c", language="en", category="t"),
-        ]
-
-        with patch('src.filters.ollama_filter.MIN_RELEVANT_ARTICLES', 0):
-            result = ollama_filter.filter_articles(articles, skip_llm=False)
-
-        # "Maybe Drop Me" -> None, score 1 -> Dropped (fallback requires >= 2)
+    @patch('src.filters.ollama_filter.keyword_score')
+    @patch('src.filters.ollama_filter.llm_relevance_check')
+    def test_skip_llm_flag_does_not_bypass_strict_yes_gate(self, mock_llm, mock_kw):
+        mock_kw.side_effect = lambda a: (10, ['student'])
+        mock_llm.side_effect = lambda a: False
+        result = ollama_filter.filter_articles(self.articles, skip_llm=True)
         self.assertEqual(len(result), 0)
 
     def test_negative_theory_without_industry_context_is_filtered(self):
@@ -221,6 +203,64 @@ class TestOllamaFilterLogic(unittest.TestCase):
         )
         score, _ = ollama_filter.keyword_score(article)
         self.assertGreater(score, 0)
+
+    def test_infer_domain_tags_single_domain(self):
+        article = Article(
+            title="OT cybersecurity hardening in ICS environments",
+            url="https://example.com/cyber",
+            source="s",
+            content_snippet="IEC 62443 controls and vulnerability management for OT security.",
+            language="en",
+            category="security",
+        )
+        tags = ollama_filter._infer_domain_tags(article)
+        self.assertIn("cybersecurity", tags)
+        self.assertLessEqual(len(tags), 3)
+
+    def test_infer_domain_tags_multi_domain_and_cap(self):
+        article = Article(
+            title="AI robots in automotive factory improve supply chain and energy efficiency",
+            url="https://example.com/multi",
+            source="s",
+            content_snippet=(
+                "Robotics cells in vehicle production optimize logistics, grid demand, "
+                "and manufacturing throughput with predictive maintenance."
+            ),
+            language="en",
+            category="industry",
+        )
+        tags = ollama_filter._infer_domain_tags(article)
+        self.assertGreaterEqual(len(tags), 2)
+        self.assertLessEqual(len(tags), 3)
+
+    def test_infer_domain_tags_default_factory_when_no_match(self):
+        article = Article(
+            title="General update",
+            url="https://example.com/general",
+            source="s",
+            content_snippet="Miscellaneous announcement without clear domain keywords.",
+            language="en",
+            category="news",
+        )
+        tags = ollama_filter._infer_domain_tags(article)
+        self.assertEqual(tags, ["factory"])
+
+    @patch('src.filters.ollama_filter.llm_relevance_check')
+    def test_filter_articles_assigns_domain_tags_for_yes(self, mock_llm):
+        mock_llm.side_effect = lambda a: True
+        articles = [
+            Article(
+                title="Humanoid robot cell in automotive assembly",
+                url="https://example.com/robot-auto",
+                source="s",
+                content_snippet="Robotics integration in vehicle factory line.",
+                language="en",
+                category="industry",
+            )
+        ]
+        result = ollama_filter.filter_articles(articles, skip_llm=False)
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0].domain_tags)
 
 if __name__ == '__main__':
     unittest.main()
