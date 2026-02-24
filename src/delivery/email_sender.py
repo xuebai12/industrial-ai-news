@@ -13,6 +13,7 @@ from datetime import date
 from dataclasses import replace
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from typing import Any
 
 from jinja2 import Template
 from openai import OpenAI
@@ -51,17 +52,6 @@ I18N_LABELS = {
         "overview_title": "Daily Overview",
         "top_title": "Top 3",
         "footer": "Industrial AI Intelligence System (EN)",
-    },
-    "zh": {
-        "title": "工业 AI 每日摘要",
-        "stats": "今日共筛选出 <strong>{{ count }}</strong> 条相关情报",
-        "simple_explain_label": "通俗解读",
-        "application_label": "应用背景",
-        "source_label": "来源",
-        "link_label": "查看原文",
-        "overview_title": "今日总览",
-        "top_title": "最值得看",
-        "footer": "Industrial AI Intelligence System",
     },
     "de": {
         "title": "Tageszusammenfassung Industrielle KI",
@@ -160,7 +150,7 @@ EMAIL_TEMPLATE = Template(
     <h2>{{ labels.pending_title if labels.pending_title else 'Weitere Relevante Artikel (nicht analysiert)' }}</h2>
     {% for group in pending_articles %}
     <h3>{{ group.domain_label }}</h3>
-    {% if group['items'] %}
+    {% if group.items_list %}
     <table>
       <thead>
         <tr>
@@ -171,7 +161,7 @@ EMAIL_TEMPLATE = Template(
         </tr>
       </thead>
       <tbody>
-        {% for item in group['items'] %}
+        {% for item in group.items_list %}
         <tr>
           <td>{{ loop.index }}</td>
           <td>{{ item.category }}</td>
@@ -205,26 +195,20 @@ def _clip(text: str, limit: int) -> str:
 
 def _pick_title(article: AnalyzedArticle, lang: str) -> str:
     if lang == "de":
-        return article.title_de or article.title_en or article.title_zh
-    if lang == "en":
-        return article.title_en or article.title_de or article.title_zh
-    return article.title_zh or article.title_en or article.title_de
+        return article.title_de or article.title_en
+    return article.title_en or article.title_de
 
 
 def _pick_primary_summary(article: AnalyzedArticle, lang: str) -> str:
     if lang == "de":
-        return article.summary_de or article.summary_en or article.summary_zh
-    if lang == "en":
-        return article.summary_en or article.summary_de or article.summary_zh
-    return article.summary_zh or article.summary_en or article.summary_de
+        return article.summary_de or article.summary_en
+    return article.summary_en or article.summary_de
 
 
 def _pick_secondary_summary(article: AnalyzedArticle, lang: str) -> str:
     if lang == "de":
         return article.summary_en if article.summary_en != article.summary_de else ""
-    if lang == "en":
-        return article.summary_de if article.summary_de != article.summary_en else ""
-    return article.summary_en if article.summary_en != article.summary_zh else ""
+    return article.summary_de if article.summary_de != article.summary_en else ""
 
 
 def _get_translator_client() -> OpenAI | None:
@@ -315,7 +299,7 @@ def _rewrite_to_german(article: AnalyzedArticle) -> AnalyzedArticle:
         "Do not output English or Chinese sentences except fixed product names/acronyms."
     )
     user = (
-        f"title_de: {article.title_de or article.title_en or article.title_zh}\n"
+        f"title_de: {article.title_de or article.title_en}\n"
         f"german_context: {article.german_context}\n"
         f"technician_analysis_de: {article.technician_analysis_de or article.simple_explanation}\n"
     )
@@ -347,7 +331,7 @@ def _rewrite_to_german(article: AnalyzedArticle) -> AnalyzedArticle:
 
     return replace(
         article,
-        title_de=_s("title_de", article.title_de or article.title_en or article.title_zh),
+        title_de=_s("title_de", article.title_de or article.title_en),
         german_context=_s("german_context", article.german_context),
         technician_analysis_de=_s("technician_analysis_de", article.technician_analysis_de),
     )
@@ -362,7 +346,7 @@ def _enforce_technician_language_guard(articles: list[AnalyzedArticle]) -> list[
         if rewrites < TECHNICIAN_GUARD_MAX_REWRITE and _needs_german_rewrite(article):
             logger.warning(
                 "[LANG_GUARD] Non-German ratio high, rewriting article: %s",
-                (article.title_en or article.title_de or article.title_zh)[:80],
+                (article.title_en or article.title_de)[:80],
             )
             rewritten.append(_rewrite_to_german(article))
             rewrites += 1
@@ -395,6 +379,68 @@ def _to_german_category(tag: str) -> str:
     return value or "Sonstiges"
 
 
+def _normalize_pending_articles(pending_articles: list[dict] | None) -> list[dict[str, Any]]:
+    """Normalize pending rows to grouped structure expected by templates."""
+    if not pending_articles:
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    first = pending_articles[0]
+    grouped_mode = isinstance(first, dict) and "items" in first
+
+    if grouped_mode:
+        for group in pending_articles:
+            if not isinstance(group, dict):
+                continue
+            raw_items = group.get("items", [])
+            items_list: list[dict[str, str]] = []
+            if isinstance(raw_items, list):
+                for item in raw_items:
+                    if not isinstance(item, dict):
+                        continue
+                    items_list.append(
+                        {
+                            "category": str(item.get("category", "") or ""),
+                            "title": str(item.get("title", "") or ""),
+                            "url": str(item.get("url", "") or ""),
+                        }
+                    )
+            normalized.append(
+                {
+                    "domain_key": str(group.get("domain_key", "") or ""),
+                    "domain_label": str(group.get("domain_label", "General") or "General"),
+                    "items_list": items_list,
+                }
+            )
+        return normalized
+
+    # Backward-compatible flat mode: treat as one generic group.
+    flat_items: list[dict[str, str]] = []
+    for item in pending_articles:
+        if not isinstance(item, dict):
+            continue
+        flat_items.append(
+            {
+                "category": str(item.get("category", "") or ""),
+                "title": str(item.get("title", "") or ""),
+                "url": str(item.get("url", "") or ""),
+            }
+        )
+    return [{"domain_key": "general", "domain_label": "General", "items_list": flat_items}]
+
+
+def _profile_name(profile: object | None) -> str:
+    if profile is None:
+        return "Default"
+    name = getattr(profile, "name", "")
+    if isinstance(name, str) and name.strip():
+        return name
+    persona = getattr(profile, "persona", "")
+    if isinstance(persona, str) and persona.strip():
+        return persona
+    return "Default"
+
+
 def render_digest(
     articles: list[AnalyzedArticle],
     today: str | None = None,
@@ -405,7 +451,7 @@ def render_digest(
     if today is None:
         today = date.today().strftime("%Y-%m-%d")
 
-    lang = getattr(profile, "language", "zh") if profile else "zh"
+    lang = getattr(profile, "language", "en") if profile else "en"
     persona = str(getattr(profile, "persona", "")).strip().lower() if profile else ""
     if persona == "student":
         # Student template is English-only by requirement.
@@ -420,11 +466,19 @@ def render_digest(
             explain_compact = _clip(mechanism_text, 220)
             title_en_compact = ""
             category_tag = _to_german_category(article.category_tag)
-            display_title = _clip(article.title_de or article.title_en or article.title_zh, 90)
+            display_title = _clip(article.title_de or article.title_en, 90)
         else:
-            context_compact = _clip(article.german_context or "N/A", 140)
-            explain_compact = _clip(article.simple_explanation or "N/A", 200)
-            title_en_compact = _clip(article.title_en or "", 110) if lang == "en" else _clip(article.title_en or "", 110)
+            context_compact = (
+                _clip(article.summary_en or "N/A", 140)
+                if lang == "en"
+                else _clip(article.summary_en or "N/A", 140)
+            )
+            explain_compact = (
+                _clip(article.summary_en or "N/A", 200)
+                if lang == "en"
+                else _clip(article.simple_explanation or "N/A", 200)
+            )
+            title_en_compact = _clip(article.title_en or "", 110)
             category_tag = article.category_tag
             display_title = _clip(_pick_title(article, lang), 90)
 
@@ -440,10 +494,12 @@ def render_digest(
             }
         )
 
+    normalized_pending = _normalize_pending_articles(pending_articles)
+
     return EMAIL_TEMPLATE.render(
         today=today,
         articles=rendered_articles,
-        pending_articles=pending_articles or [],
+        pending_articles=normalized_pending,
         profile=profile,
         labels=labels,
         persona=persona,
@@ -466,32 +522,25 @@ def render_digest_text(
     elif persona == "technician":
         lang = "de"
     else:
-        lang = "zh"
+        lang = "en"
 
     if lang == "de":
         lines = [f"[Tagesuebersicht Industrielle KI] {today}", f"Artikel: {len(articles)}"]
-    elif lang == "zh":
-        lines = [f"[工业 AI 每日摘要] {today}", f"文章数: {len(articles)}"]
     else:
         lines = [f"[Industrial AI Digest] {today}", f"Articles: {len(articles)}"]
 
     lines.append("\nDetails:\n")
 
     for article in articles:
-        if lang == "en":
-            display_title = _clip(article.title_en or article.title_de or article.title_zh, 100)
-            explain = _clip(article.simple_explanation or "N/A", 180)
-            app = _clip(article.german_context or "N/A", 140)
-            category = article.category_tag
-        elif lang == "de":
-            display_title = _clip(article.title_de or article.title_en or article.title_zh, 100)
+        if lang == "de":
+            display_title = _clip(article.title_de or article.title_en, 100)
             explain = _clip(article.technician_analysis_de or "N/A", 180)
             app = _clip(article.german_context or "N/A", 140)
             category = _to_german_category(article.category_tag)
         else:
-            display_title = _clip(article.title_zh or article.title_en, 100)
-            explain = _clip(article.simple_explanation or "N/A", 180)
-            app = _clip(article.german_context or "N/A", 140)
+            display_title = _clip(article.title_en or article.title_de, 100)
+            explain = _clip(article.summary_en or "N/A", 180)
+            app = _clip(article.summary_en or "N/A", 140)
             category = article.category_tag
         lines.append(f"[{category}] {display_title}")
         if lang == "de":
@@ -504,21 +553,18 @@ def render_digest_text(
             lines.append(f"- Source: {article.source_name} | {article.source_url}")
         lines.append("")
 
-    if pending_articles:
+    normalized_pending = _normalize_pending_articles(pending_articles)
+    if normalized_pending:
         if lang == "de":
             lines.append("Weitere Relevante Artikel (nicht analysiert):")
-        elif lang == "zh":
-            lines.append("更多相关但未分析文章：")
         else:
             lines.append("More relevant articles (not analyzed):")
-        for group in pending_articles:
+        for group in normalized_pending:
             lines.append(f"- {group.get('domain_label', '')}")
-            items = group.get("items", [])
+            items = group.get("items_list", [])
             if not items:
                 if lang == "de":
                     lines.append("  Keine unanalysierten Artikel in dieser Kategorie.")
-                elif lang == "zh":
-                    lines.append("  该类别暂无未分析文章。")
                 else:
                     lines.append("  No unanalyzed articles in this category.")
                 continue
@@ -580,7 +626,9 @@ def send_email(
 
     try:
         logger.info(
-            f"[EMAIL] Sending digest to {recipient} (Profile: {profile.name if profile else 'Default'})"
+            "[EMAIL] Sending digest to %s (Profile: %s)",
+            recipient,
+            _profile_name(profile),
         )
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
             server.starttls()

@@ -199,7 +199,7 @@ def _article_key(article: object) -> str:
     if key:
         return key
     source = getattr(article, "source", "") or getattr(article, "source_name", "")
-    title = getattr(article, "title", "") or getattr(article, "title_en", "") or getattr(article, "title_zh", "")
+    title = getattr(article, "title", "") or getattr(article, "title_en", "")
     return f"{source}:{title}"
 
 
@@ -210,6 +210,16 @@ def _article_source_key(article: object) -> str:
         or ""
     ).strip().lower()
     return source or f"__unknown__:{id(article)}"
+
+
+def _successful_analyzed_keys(analyzed: list) -> set[str]:
+    """Keys for articles that produced successful analyzed outputs."""
+    keys: set[str] = set()
+    for item in analyzed:
+        original = getattr(item, "original", None)
+        source_article = original if original is not None else item
+        keys.add(_article_key(source_article))
+    return keys
 
 
 def _dedupe_articles(articles: list) -> list:
@@ -262,46 +272,15 @@ def _apply_diversity_caps(articles: list) -> list:
     """
     在进入分析前对候选文章应用多样性配额规则 (Apply diversity caps before analysis).
 
-    Rules (按优先级顺序，先排序后截断):
-    1. 每个来源 (source) 最多保留 1 篇，取相关性分数最高的那篇。
-    2. YouTube 来源文章总占位不超过 ANALYSIS_MAX_YOUTUBE 篇。
+    Rules:
+    1. YouTube 来源文章总占位不超过 ANALYSIS_MAX_YOUTUBE 篇。
 
     原始顺序（按 relevance_score 降序）在截断后保持不变。
     """
-    # ── Rule 1: one article per source (highest-score wins) ──────────────
-    seen_sources: set[str] = set()
-    one_per_source: list = []
-    # Articles arrive sorted by score descending; first occurrence = highest score.
-    for article in articles:
-        source = (
-            getattr(article, "source", None)
-            or getattr(article, "source_name", None)
-            or ""
-        ).strip()
-        source_key = source.lower() if source else id(article)  # fallback: treat as unique
-        if source_key in seen_sources:
-            logger.debug(
-                "[DIVERSITY] Dropped duplicate source '%s': %s",
-                source,
-                getattr(article, "title", "")[:70],
-            )
-            continue
-        seen_sources.add(source_key)
-        one_per_source.append(article)
-
-    dropped_source = len(articles) - len(one_per_source)
-    if dropped_source:
-        logger.info(
-            "[DIVERSITY] one-per-source rule: kept %s/%s (dropped %s duplicates)",
-            len(one_per_source),
-            len(articles),
-            dropped_source,
-        )
-
-    # ── Rule 2: cap YouTube slots ─────────────────────────────────────────
+    # ── Rule 1: cap YouTube slots ─────────────────────────────────────────
     youtube_count = 0
     capped: list = []
-    for article in one_per_source:
+    for article in articles:
         is_youtube = (
             "youtube" in (getattr(article, "source", "") or "").lower()
             or "youtu" in (getattr(article, "url", "") or "").lower()
@@ -318,13 +297,13 @@ def _apply_diversity_caps(articles: list) -> list:
             youtube_count += 1
         capped.append(article)
 
-    dropped_yt = len(one_per_source) - len(capped)
+    dropped_yt = len(articles) - len(capped)
     if dropped_yt:
         logger.info(
             "[DIVERSITY] YouTube cap (%s): kept %s/%s (dropped %s)",
             ANALYSIS_MAX_YOUTUBE,
             len(capped),
-            len(one_per_source),
+            len(articles),
             dropped_yt,
         )
 
@@ -633,8 +612,9 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
                 target_analysis_count,
             )
 
+    successful_keys = _successful_analyzed_keys(analyzed)
     pending_candidates = [
-        article for article in sorted_relevant_articles if _article_key(article) not in attempted_keys
+        article for article in sorted_relevant_articles if _article_key(article) not in successful_keys
     ]
     pending_articles = _build_pending_articles_table(pending_candidates, start=0, limit=20)
 

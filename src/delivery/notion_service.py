@@ -3,6 +3,7 @@
 import hashlib
 import logging
 import re
+from typing import Any, cast
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from notion_client import Client
@@ -49,27 +50,27 @@ class NotionDeliveryService:
         for article in articles:
             normalized = self.normalize_url(article.source_url or "")
             if normalized and normalized in existing_urls:
-                logger.info(f"[NOTION] Skip (duplicate url): {article.title_zh[:40]}")
+                logger.info(f"[NOTION] Skip (duplicate url): {article.title_en[:40]}")
                 continue
-            normalized_title = (article.title_zh or article.title_en or "").strip().lower()
+            normalized_title = (article.title_en or "").strip().lower()
             if normalized_title and normalized_title in existing_titles:
-                logger.info(f"[NOTION] Skip (duplicate title): {article.title_zh[:40]}")
+                logger.info(f"[NOTION] Skip (duplicate title): {article.title_en[:40]}")
                 continue
 
             dedupe_key = self.article_dedupe_hash(article)
             if dedupe_key in seen_hashes:
-                logger.info(f"[NOTION] Skip (duplicate hash): {article.title_zh[:40]}")
+                logger.info(f"[NOTION] Skip (duplicate hash): {article.title_en[:40]}")
                 continue
             seen_hashes.add(dedupe_key)
 
             try:
                 self.create_page(article, today)
                 pushed += 1
-                logger.info(f"[NOTION] ✅ Pushed {pushed}: {article.title_zh[:50]}")
+                logger.info(f"[NOTION] ✅ Pushed {pushed}: {article.title_en[:50]}")
             except NotionDeliveryError as e:
                 logger.error(
                     "[NOTION] ❌ Failed to push '%s': category=%s error=%s",
-                    article.title_zh[:40],
+                    article.title_en[:40],
                     e.category,
                     e.message,
                 )
@@ -80,7 +81,7 @@ class NotionDeliveryService:
                 category = self.classify_error(e)
                 logger.error(
                     "[NOTION] ❌ Failed to push '%s': category=%s error=%s",
-                    article.title_zh[:40],
+                    article.title_en[:40],
                     category,
                     e,
                 )
@@ -109,7 +110,7 @@ class NotionDeliveryService:
             [
                 normalized,
                 (article.source_name or "").strip().lower(),
-                (article.title_zh or article.title_en or "").strip().lower(),
+                (article.title_en or "").strip().lower(),
             ]
         )
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -219,29 +220,33 @@ class NotionDeliveryService:
         # Prefer modern Data Source API if the supplied ID is a data_source id.
         if hasattr(self.client, "data_sources"):
             try:
-                ds = self.client.data_sources.retrieve(data_source_id=self.database_id)
+                ds = self._as_mapping(self.client.data_sources.retrieve(data_source_id=self.database_id))
                 ds_props = ds.get("properties", {}) or {}
                 if ds_props:
-                    return "data_source_id", self.database_id, ds_props
+                    return "data_source_id", self.database_id, cast(dict[str, dict], ds_props)
             except Exception:
                 pass
 
         # Fallback to legacy database API.
-        db = self.client.databases.retrieve(database_id=self.database_id)
+        db = self._as_mapping(self.client.databases.retrieve(database_id=self.database_id))
         db_props = db.get("properties", {}) or {}
         if db_props:
-            return "database_id", self.database_id, db_props
+            return "database_id", self.database_id, cast(dict[str, dict], db_props)
 
         # New Notion API may return data_sources under a database object.
-        for ds in db.get("data_sources", []) or []:
+        raw_data_sources = db.get("data_sources", []) or []
+        data_sources = raw_data_sources if isinstance(raw_data_sources, list) else []
+        for ds in data_sources:
+            if not isinstance(ds, dict):
+                continue
             ds_id = str(ds.get("id", "")).strip()
             if not ds_id:
                 continue
             try:
-                ds_detail = self.client.data_sources.retrieve(data_source_id=ds_id)
+                ds_detail = self._as_mapping(self.client.data_sources.retrieve(data_source_id=ds_id))
                 ds_props = ds_detail.get("properties", {}) or {}
                 if ds_props:
-                    return "data_source_id", ds_id, ds_props
+                    return "data_source_id", ds_id, cast(dict[str, dict], ds_props)
             except Exception:
                 continue
 
@@ -249,12 +254,20 @@ class NotionDeliveryService:
 
     def query_entries(self, parent_key: str, parent_id: str, body: dict) -> dict:
         if parent_key == "data_source_id" and hasattr(self.client, "data_sources"):
-            return self.client.data_sources.query(data_source_id=parent_id, **body)
-        return self.client.request(
+            return self._as_mapping(self.client.data_sources.query(data_source_id=parent_id, **body))
+        return self._as_mapping(
+            self.client.request(
             path=f"databases/{parent_id}/query",
             method="POST",
             body=body,
+            )
         )
+
+    @staticmethod
+    def _as_mapping(payload: object) -> dict[str, Any]:
+        if isinstance(payload, dict):
+            return cast(dict[str, Any], payload)
+        return {}
 
     @staticmethod
     def find_title_property_name(schema: dict[str, dict]) -> str | None:
@@ -328,7 +341,7 @@ class NotionDeliveryService:
         if not title_property:
             raise NotionDeliveryError("SCHEMA", "No title property found in Notion schema")
 
-        title_text = article.title_zh or article.title_en or "Untitled"
+        title_text = article.title_en or "Untitled"
         properties: dict[str, dict] = {
             title_property: {"title": [{"text": {"content": title_text[:2000]}}]}
         }
@@ -356,10 +369,10 @@ class NotionDeliveryService:
             candidates=("AI 摘要", "摘要", "Summary", "summary"),
             expected_types=("rich_text",),
         )
-        if summary_name and (article.summary_zh or article.summary_en):
+        if summary_name and article.summary_en:
             properties[summary_name] = {
                 "rich_text": [
-                    {"text": {"content": ((article.summary_zh or article.summary_en)[:2000])}}
+                    {"text": {"content": (article.summary_en[:2000])}}
                 ]
             }
 
@@ -405,11 +418,9 @@ class NotionDeliveryService:
         """Build Notion page content blocks for the article."""
         blocks = []
 
-        blocks.append(self._heading2(article.title_en or article.title_zh))
+        blocks.append(self._heading2(article.title_en))
 
         blocks.append(self._heading3("📝 摘要 / Summary"))
-        if article.summary_zh:
-            blocks.append(self._paragraph(f"🇨🇳 {article.summary_zh}"))
         if article.summary_en:
             blocks.append(self._paragraph(f"🇬🇧 {article.summary_en}"))
 

@@ -36,14 +36,14 @@ class TestLLMJsonExtract(unittest.TestCase):
         raw = """```json
 {
   "category_tag": "Humanoid Robotics / Industry Analysis",
-  "summary_zh": "第一句
-第二句"
+  "summary_en": "First line
+Second line"
 }
 ```"""
         data = _extract_json(raw)
         self.assertIsNotNone(data)
         self.assertEqual(data["category_tag"], "Humanoid Robotics / Industry Analysis")
-        self.assertEqual(data["summary_zh"], "第一句\n第二句")
+        self.assertEqual(data["summary_en"], "First line\nSecond line")
 
 
 if __name__ == "__main__":

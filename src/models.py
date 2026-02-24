@@ -30,13 +30,11 @@ class AnalyzedArticle:
     存储经过 LLM AI 深度分析后的结构化数据。
     """
     category_tag: str          # 类别标签 (e.g. "Digital Twin", "Research", "Industry 4.0")
-    title_zh: str              # 中文标题
     title_en: str              # 英文标题
     title_de: str              # 德文标题 (German Title)
     german_context: str        # 德方/行业应用背景
     source_name: str           # 来源名称 (e.g. "Fraunhofer IPA")
     source_url: str            # 原始链接
-    summary_zh: str            # 中文一句话摘要
     summary_en: str            # 英文一句话摘要
     summary_de: str            # 德文一句话摘要 (German Summary)
     

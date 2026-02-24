@@ -10,6 +10,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
 from openai import OpenAI
 
 from src.models import Article, AnalyzedArticle
@@ -283,7 +284,7 @@ def _diagnose_json_parse_error(text: str) -> str:
 # Both keep the key constraints from the original long Chinese prompt.
 STUDENT_EN_PROMPT = (
     "Extract key info into a JSON object with strictly these keys: "
-    '"category_tag","title_zh","title_en","title_de","summary_zh","summary_en","summary_de",'
+    '"category_tag","title_en","title_de","summary_en","summary_de",'
     '"german_context","tool_stack","simple_explanation","technician_analysis_de". '
     "Return ONLY valid JSON. No markdown. No reasoning. No tags like <think>. "
     "Use predefined tags (factory, robotics, automotive, supply chain, energy, cybersecurity) for category_tag. "
@@ -293,7 +294,7 @@ STUDENT_EN_PROMPT = (
 )
 TECHNICIAN_DE_PROMPT = (
     "Erstelle ein reines JSON-Objekt mit exakt diesen Schlüsseln: "
-    '"category_tag","title_zh","title_en","title_de","summary_zh","summary_en","summary_de",'
+    '"category_tag","title_en","title_de","summary_en","summary_de",'
     '"german_context","tool_stack","simple_explanation","technician_analysis_de". '
     "Nur gültiges JSON ausgeben. Kein Markdown. Keine Erklärungen. Keine <think> Tags. "
     "Zielgruppe für technician_analysis_de: Ein durchschnittlicher Facharbeiter in der Maschinenbauindustrie. "
@@ -313,13 +314,11 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
         # Mock Response (模拟响应，用于测试)
         return AnalyzedArticle(
             category_tag="Digital Twin",
-            title_zh=f"[测试] {article.title} (CN)",
             title_en=f"[TEST] {article.title} (EN)",
             title_de=f"[TEST] {article.title} (DE)",
             german_context="Mock context.",
             source_name=article.source,
             source_url=article.url,
-            summary_zh="这是一个测试摘要。",
             summary_en="This is a test summary.",
             summary_de="Dies ist eine Test-Zusammenfassung.",
             tool_stack="AnyLogic, Python",
@@ -396,7 +395,7 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
         )
         minimal_prompt = (
             'Return ONLY valid JSON. No markdown. No explanation. '
-            'Required keys: category_tag,title_zh,title_en,title_de,summary_zh,summary_en,summary_de,'
+            'Required keys: category_tag,title_en,title_de,summary_en,summary_de,'
             'german_context,tool_stack,simple_explanation,technician_analysis_de. '
             'Use empty string if unknown. '
             'simple_explanation must be exactly 2 Chinese sentences. '
@@ -423,7 +422,7 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
         return None
 
     # Helper to force string type
-    def _ensure_str(value: any) -> str:
+    def _ensure_str(value: Any) -> str:
         if value is None:
             return ""
         if isinstance(value, str):
@@ -440,13 +439,11 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
     # creating AnalyzedArticle with sanitized inputs
     analyzed = AnalyzedArticle(
         category_tag=_ensure_str(data.get("category_tag", "Other")),
-        title_zh=_ensure_str(data.get("title_zh", article.title)),
         title_en=_ensure_str(data.get("title_en", article.title)),
         title_de=_ensure_str(data.get("title_de", article.title)),
         german_context=_ensure_str(data.get("german_context", "")),
         source_name=_ensure_str(article.source),
         source_url=_ensure_str(article.url),
-        summary_zh=_ensure_str(data.get("summary_zh", "")),
         summary_en=_ensure_str(data.get("summary_en", "")),
         summary_de=_ensure_str(data.get("summary_de", "")),
         tool_stack=_ensure_str(data.get("tool_stack", "")),
@@ -456,7 +453,7 @@ def analyze_article(article: Article, mock: bool = False) -> AnalyzedArticle | N
         original=article,
     )
 
-    logger.info(f"[{API_PROVIDER}] ✅ Analyzed: [{analyzed.category_tag}] {analyzed.title_zh[:50]}")
+    logger.info(f"[{API_PROVIDER}] ✅ Analyzed: [{analyzed.category_tag}] {analyzed.title_en[:50]}")
     return analyzed
 
 
@@ -532,31 +529,36 @@ def _call_and_parse(client: OpenAI, system_prompt: str, user_content: str) -> di
                     time.sleep(wait_s)
                 _last_request_ts = time.monotonic()
 
-            request_kwargs = {
-                "model": LLM_MODEL,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content},
-                ],
-                "temperature": 0.0 if IS_LOCAL else 0.2,
-                "max_tokens": MAX_TOKENS,
-                "timeout": REQUEST_TIMEOUT_SECONDS,
-            }
+            messages_payload: Any = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ]
+            temperature = 0.0 if IS_LOCAL else 0.2
             if IS_LOCAL:
-                # Explicitly set num_predict for local models to match MAX_TOKENS
-                # and ensure context window is sufficient.
-                request_kwargs["extra_body"] = {
-                    "format": "json",
-                    "options": {
-                        "num_predict": MAX_TOKENS,
-                        "num_ctx": 4096,
-                        "temperature": request_kwargs["temperature"]
-                    }
-                }
-
-            response = client.chat.completions.create(
-                **request_kwargs
-            )
+                response = client.chat.completions.create(
+                    model=LLM_MODEL,
+                    messages=messages_payload,
+                    temperature=temperature,
+                    max_tokens=MAX_TOKENS,
+                    timeout=REQUEST_TIMEOUT_SECONDS,
+                    # Explicitly set num_predict/context for local models.
+                    extra_body={
+                        "format": "json",
+                        "options": {
+                            "num_predict": MAX_TOKENS,
+                            "num_ctx": 4096,
+                            "temperature": temperature,
+                        },
+                    },
+                )
+            else:
+                response = client.chat.completions.create(
+                    model=LLM_MODEL,
+                    messages=messages_payload,
+                    temperature=temperature,
+                    max_tokens=MAX_TOKENS,
+                    timeout=REQUEST_TIMEOUT_SECONDS,
+                )
 
             raw = _message_to_text(response.choices[0].message)
             if not raw:

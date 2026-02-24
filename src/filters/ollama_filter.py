@@ -9,7 +9,6 @@ import os
 import re
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 
 from openai import OpenAI
 
@@ -50,6 +49,7 @@ FILTER_RATE_LIMIT_MAX_RETRIES = int(os.getenv("KIMI_FILTER_RATE_LIMIT_MAX_RETRIE
 _filter_rate_lock = threading.Lock()
 _filter_last_request_ts = 0.0
 NONE_RATE_ALERT_THRESHOLD = float(os.getenv("LLM_FILTER_NONE_ALERT_THRESHOLD", "0.3"))
+MIN_SCORE_FOR_LLM_FILTER = 3
 
 DOMAIN_ORDER = [
     "factory",
@@ -426,9 +426,10 @@ def llm_relevance_check(article: Article) -> bool | None:
 
 def filter_articles(articles: list[Article], skip_llm: bool = False) -> list[Article]:
     """
-    双重过滤流水线 (Two-stage filtering pipeline):
-    1. Keyword scoring (关键词评分) — 仅用于排序和优先级
-    2. LLM validation (LLM 校验) — 仅 LLM=YES 才允许进入结果集
+    过滤流水线 (Filtering pipeline):
+    1. Keyword scoring (关键词评分)
+    2. Score gate: score >= MIN_SCORE_FOR_LLM_FILTER 直接进入结果集
+       （不再做 LLM YES/NO 相关性门禁）
 
     Returns:
         list[Article]: 按相关性分数降序排列，且包含 domain_tags 的文章列表
@@ -436,7 +437,7 @@ def filter_articles(articles: list[Article], skip_llm: bool = False) -> list[Art
     logger.info(f"[FILTER] Starting filter on {len(articles)} articles")
 
     if skip_llm:
-        logger.warning("[FILTER] skip_llm=True ignored by strict gate policy (LLM YES only)")
+        logger.info("[FILTER] skip_llm=True: relevance gate is keyword-score based (no LLM YES/NO gate)")
 
     scored: list[Article] = []
     for article in articles:
@@ -446,60 +447,28 @@ def filter_articles(articles: list[Article], skip_llm: bool = False) -> list[Art
         article.domain_tags = []
         scored.append(article)
 
-    result: list[Article] = []
-    llm_yes_count = 0
-    llm_no_count = 0
-    llm_none_count = 0
-    domain_distribution: dict[str, int] = {domain: 0 for domain in DOMAIN_ORDER}
-
-    with ThreadPoolExecutor(max_workers=MAX_CONCURRENCY) as executor:
-        future_to_article = {
-            executor.submit(llm_relevance_check, article): article
-            for article in scored
-        }
-        for future in future_to_article:
-            article = future_to_article[future]
-            try:
-                llm_result = future.result()
-            except Exception as e:
-                logger.error(f"LLM check failed for {article.title[:30]}: {e}")
-                llm_result = None
-
-            if llm_result is True:
-                llm_yes_count += 1
-                article.domain_tags = _infer_domain_tags(article)
-                for tag in article.domain_tags:
-                    domain_distribution[tag] = domain_distribution.get(tag, 0) + 1
-                logger.debug(
-                    "  accepted by LLM YES with domain_tags=%s: %s",
-                    article.domain_tags,
-                    article.title[:80],
-                )
-                result.append(article)
-            elif llm_result is False:
-                llm_no_count += 1
-            else:
-                llm_none_count += 1
-
-    total_llm = max(1, llm_yes_count + llm_no_count + llm_none_count)
-    none_rate = llm_none_count / total_llm
+    scored.sort(key=lambda a: a.relevance_score, reverse=True)
+    llm_candidates = [a for a in scored if a.relevance_score >= MIN_SCORE_FOR_LLM_FILTER]
     logger.info(
-        "[FILTER] LLM verdicts: YES=%s NO=%s NONE=%s (none_rate=%.1f%%)",
-        llm_yes_count,
-        llm_no_count,
-        llm_none_count,
-        none_rate * 100,
+        "[FILTER] Preselect score >= %s for LLM: %s/%s articles",
+        MIN_SCORE_FOR_LLM_FILTER,
+        len(llm_candidates),
+        len(scored),
     )
-    if none_rate > NONE_RATE_ALERT_THRESHOLD:
-        logger.warning(
-            "[FILTER] LLM NONE rate high (%.1f%% > %.1f%% threshold)",
-            none_rate * 100,
-            NONE_RATE_ALERT_THRESHOLD * 100,
-        )
+
+    result: list[Article] = []
+    domain_distribution: dict[str, int] = {domain: 0 for domain in DOMAIN_ORDER}
+    for article in llm_candidates:
+        article.domain_tags = _infer_domain_tags(article)
+        for tag in article.domain_tags:
+            domain_distribution[tag] = domain_distribution.get(tag, 0) + 1
+        result.append(article)
+
     logger.info(
-        "[FILTER] %s/%s passed strict LLM YES gate; domain_distribution=%s",
+        "[FILTER] %s/%s passed score gate (>= %s); domain_distribution=%s",
         len(result),
         len(scored),
+        MIN_SCORE_FOR_LLM_FILTER,
         domain_distribution,
     )
 

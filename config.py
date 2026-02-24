@@ -720,7 +720,7 @@ class RecipientProfile:
     """
     name: str              # 画像名称 (e.g. "Student Group")
     email: str             # 接收邮箱 (Recipient email)
-    language: str          # 语言偏好 ("zh", "de")
+    language: str          # 语言偏好 ("en", "de")
     persona: str           # 角色设定 ("student", "technician") - 决定了邮件模板和分析侧重点
     delivery_channel: str  # 投递渠道 ("email", "notion", "both")
     focus_keywords: list[str]  # 关注关键词 (Keywords to highlight)
@@ -801,7 +801,7 @@ class DataSource:
     name: str              # 数据源名称
     url: str               # URL 地址 (RSS feed 或 网页链接)
     source_type: str       # 抓取类型 ("rss", "web", "dynamic")
-    language: str          # 内容语言 ("de", "en", "zh")
+    language: str          # 内容语言 ("de", "en")
     category: str          # 类别 ("research", "industry", "policy", "social")
     priority: int = 1      # 优先级 (1=Standard, 2=High, 3=Critical)
 
@@ -895,23 +895,16 @@ DATA_SOURCES: list[DataSource] = [
         name="36Kr AI",
         url="https://www.36kr.com/information/AI",
         source_type="web",
-        language="zh",
+        language="en",
         category="industry",
         priority=2,
     ),
-    DataSource(
-        name="Jiqizhixin",
-        url="https://www.jiqizhixin.com/",
-        source_type="web",
-        language="zh",
-        category="industry",
-        priority=2,
-    ),
+
     DataSource(
         name="Jazzyear (甲子光年)",
         url="https://www.jazzyear.com/",
         source_type="web",
-        language="zh",
+        language="en",
         category="industry",
         priority=2,
     ),
@@ -919,7 +912,7 @@ DATA_SOURCES: list[DataSource] = [
         name="MIIT News",
         url="https://www.miit.gov.cn/xwdt/gxdt/",
         source_type="web",
-        language="zh",
+        language="en",
         category="policy",
         priority=2,
     ),
@@ -940,22 +933,7 @@ DATA_SOURCES: list[DataSource] = [
         category="industry",
         priority=2,
     ),
-    DataSource(
-        name="Mercedes-Benz Group Media",
-        url="https://media.mercedes-benz.com/",
-        source_type="web",
-        language="en",
-        category="industry",
-        priority=2,
-    ),
-    DataSource(
-        name="Automobilwoche",
-        url="https://www.automobilwoche.de/",
-        source_type="web",
-        language="de",
-        category="industry",
-        priority=2,
-    ),
+
     DataSource(
         name="VDA News",
         url="https://www.vda.de/de/presse/Pressemeldungen",
@@ -992,7 +970,7 @@ DATA_SOURCES: list[DataSource] = [
         name="Estun Robotics News",
         url="https://www.estun.com/?list/29.html",
         source_type="web",
-        language="zh",
+        language="en",
         category="industry",
         priority=2,
     ),
@@ -1000,7 +978,7 @@ DATA_SOURCES: list[DataSource] = [
         name="Siasun News",
         url="https://www.siasun.com/index.php?m=content&c=index&a=lists&catid=16",
         source_type="web",
-        language="zh",
+        language="en",
         category="industry",
         priority=2,
     ),
@@ -1008,7 +986,7 @@ DATA_SOURCES: list[DataSource] = [
         name="Inovance News",
         url="https://www.inovance.com/cn/news",
         source_type="web",
-        language="zh",
+        language="en",
         category="industry",
         priority=2,
     ),
@@ -1016,7 +994,7 @@ DATA_SOURCES: list[DataSource] = [
         name="Hikrobot News",
         url="https://www.hikrobotics.com/cn/news",
         source_type="web",
-        language="zh",
+        language="en",
         category="industry",
         priority=2,
     ),
@@ -1024,7 +1002,7 @@ DATA_SOURCES: list[DataSource] = [
         name="Robot-Forum China News",
         url="https://www.robot-forum.com/",
         source_type="web",
-        language="zh",
+        language="en",
         category="industry",
         priority=1,
     ),

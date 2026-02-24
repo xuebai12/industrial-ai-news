@@ -8,13 +8,11 @@ from src.models import AnalyzedArticle
 def _article() -> AnalyzedArticle:
     return AnalyzedArticle(
         category_tag="AI",
-        title_zh="中文标题",
         title_en="English Title",
         title_de="Deutscher Titel",
         german_context="In der Montagelinie wird KI fuer visuelle Qualitaetspruefung eingesetzt.",
         source_name="Source",
         source_url="https://example.com",
-        summary_zh="zh summary",
         summary_en="en summary",
         summary_de="de summary",
         tool_stack="Python",
@@ -34,22 +32,27 @@ class TestTechnicianReadability(unittest.TestCase):
         self.assertIn("Wie ein Fruehwarnsystem", html)
         self.assertNotIn("Student-only simple explanation text.", html)
 
-    def test_student_keeps_simple_explanation_path(self) -> None:
+    def test_student_uses_english_only_fields(self) -> None:
         article = _article()
-        profile = SimpleNamespace(language="zh", persona="student")
+        profile = SimpleNamespace(language="en", persona="student")
 
         html = render_digest([article], today="2026-02-20", profile=profile)
 
-        self.assertIn("Student-only simple explanation text.", html)
+        self.assertIn("en summary", html)
+        self.assertNotIn("中文标题", html)
         self.assertNotIn("Wie ein Fruehwarnsystem", html)
+        self.assertNotIn("In der Montagelinie wird KI", html)
+        self.assertNotIn("Student-only simple explanation text.", html)
 
-    def test_non_technician_mode_behavior_unchanged(self) -> None:
+    def test_student_persona_forces_english_even_with_de_language(self) -> None:
         article = _article()
         profile = SimpleNamespace(language="de", persona="student")
 
         html = render_digest([article], today="2026-02-20", profile=profile)
 
-        self.assertIn("Student-only simple explanation text.", html)
+        self.assertIn("en summary", html)
+        self.assertNotIn("Deutscher Titel", html)
+        self.assertNotIn("Student-only simple explanation text.", html)
 
     def test_pending_articles_table_is_rendered(self) -> None:
         article = _article()

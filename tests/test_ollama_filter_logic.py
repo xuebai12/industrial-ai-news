@@ -25,49 +25,48 @@ class TestOllamaFilterLogic(unittest.TestCase):
         ]
 
     @patch('src.filters.ollama_filter.keyword_score')
-    @patch('src.filters.ollama_filter.llm_relevance_check')
-    def test_filter_logic_yes_only_gate(self, mock_llm, mock_kw):
-        # Setup mocks
-        mock_kw.side_effect = lambda a: (3, ['student'])  # Scoring kept for ranking only
+    def test_filter_logic_score_gate(self, mock_kw):
+        # score >= 3 -> kept; score < 3 -> dropped
+        def kw_side_effect(article):
+            if article.title == "Keep Me":
+                return (5, ['student'])
+            if article.title == "Maybe Keep Me":
+                return (3, ['student'])
+            return (2, ['student'])
 
-        def llm_side_effect(article):
-            if "Keep" in article.title and "Maybe" not in article.title:
-                return True
-            if "Drop" in article.title:
-                return False
-            if "Maybe" in article.title:
-                return None
-            return False
-
-        mock_llm.side_effect = llm_side_effect
+        mock_kw.side_effect = kw_side_effect
 
         result = ollama_filter.filter_articles(self.articles, skip_llm=False)
 
         # Verify
-        # YES -> kept; NO/NONE -> dropped
+        # score gate -> kept; below threshold -> dropped
         titles = [a.title for a in result]
         self.assertIn("Keep Me", titles)
-        self.assertNotIn("Maybe Keep Me", titles)
+        self.assertIn("Maybe Keep Me", titles)
         self.assertNotIn("Drop Me", titles)
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result), 2)
         self.assertTrue(result[0].domain_tags)
 
     @patch('src.filters.ollama_filter.keyword_score')
-    @patch('src.filters.ollama_filter.llm_relevance_check')
-    def test_filter_none_is_rejected_even_with_high_score(self, mock_llm, mock_kw):
+    def test_filter_high_score_is_kept(self, mock_kw):
         mock_kw.side_effect = lambda a: (10, ['student'])
-        mock_llm.side_effect = lambda a: None
         articles = [Article(title="Maybe Drop Me", url="u3", source="s", content_snippet="c", language="en", category="t")]
         result = ollama_filter.filter_articles(articles, skip_llm=False)
-        self.assertEqual(len(result), 0)
+        self.assertEqual(len(result), 1)
 
     @patch('src.filters.ollama_filter.keyword_score')
-    @patch('src.filters.ollama_filter.llm_relevance_check')
-    def test_skip_llm_flag_does_not_bypass_strict_yes_gate(self, mock_llm, mock_kw):
-        mock_kw.side_effect = lambda a: (10, ['student'])
-        mock_llm.side_effect = lambda a: False
+    def test_skip_llm_flag_does_not_change_score_gate(self, mock_kw):
+        def kw_side_effect(article):
+            if article.title == "Drop Me":
+                return (2, ['student'])
+            return (10, ['student'])
+
+        mock_kw.side_effect = kw_side_effect
         result = ollama_filter.filter_articles(self.articles, skip_llm=True)
-        self.assertEqual(len(result), 0)
+        titles = [a.title for a in result]
+        self.assertIn("Keep Me", titles)
+        self.assertIn("Maybe Keep Me", titles)
+        self.assertNotIn("Drop Me", titles)
 
     def test_negative_theory_without_industry_context_is_filtered(self):
         article = Article(
@@ -245,8 +244,10 @@ class TestOllamaFilterLogic(unittest.TestCase):
         tags = ollama_filter._infer_domain_tags(article)
         self.assertEqual(tags, ["factory"])
 
+    @patch('src.filters.ollama_filter.keyword_score')
     @patch('src.filters.ollama_filter.llm_relevance_check')
-    def test_filter_articles_assigns_domain_tags_for_yes(self, mock_llm):
+    def test_filter_articles_assigns_domain_tags_for_yes(self, mock_llm, mock_kw):
+        mock_kw.side_effect = lambda a: (3, ['student'])
         mock_llm.side_effect = lambda a: True
         articles = [
             Article(

@@ -102,6 +102,16 @@ def _make_absolute(url: str, base_url: str) -> str:
     return urljoin(base_url, url)
 
 
+def _coerce_href(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                return item.strip()
+    return ""
+
+
 def scrape_generic_web(source_name: str, url: str, selector: str,
                        lang: str, category: str, max_items: int = 20,
                        session: requests.Session | None = None) -> list[Article]:
@@ -135,7 +145,7 @@ def scrape_generic_web(source_name: str, url: str, selector: str,
 
             # 2. Try to find link (查找链接)
             link_el = item if item.name == "a" else item.select_one("a")
-            link = link_el.get("href", "") if link_el else ""
+            link = _coerce_href(link_el.get("href", "")) if link_el else ""
 
             if not title or len(title) < 5 or not link:
                 continue
