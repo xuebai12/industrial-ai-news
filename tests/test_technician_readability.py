@@ -39,10 +39,10 @@ class TestTechnicianReadability(unittest.TestCase):
         html = render_digest([article], today="2026-02-20", profile=profile)
 
         self.assertIn("en summary", html)
+        self.assertIn("Student-only simple explanation text.", html)
         self.assertNotIn("中文标题", html)
         self.assertNotIn("Wie ein Fruehwarnsystem", html)
         self.assertNotIn("In der Montagelinie wird KI", html)
-        self.assertNotIn("Student-only simple explanation text.", html)
 
     def test_student_persona_forces_english_even_with_de_language(self) -> None:
         article = _article()
@@ -51,8 +51,8 @@ class TestTechnicianReadability(unittest.TestCase):
         html = render_digest([article], today="2026-02-20", profile=profile)
 
         self.assertIn("en summary", html)
+        self.assertIn("Student-only simple explanation text.", html)
         self.assertNotIn("Deutscher Titel", html)
-        self.assertNotIn("Student-only simple explanation text.", html)
 
     def test_pending_articles_table_is_rendered(self) -> None:
         article = _article()

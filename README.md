@@ -17,12 +17,13 @@
 
 1. 抓取（Scrape）
 2. 去重（Dedupe）
-3. 相关性过滤（Keyword + LLM）
+3. 相关性过滤（Keyword Score Gate）
 4. LLM 分析（多语言、多视角）
 5. 分画像投递（Email / Markdown / Notion）
 
 说明：
-- 过滤通过后会先排序，再按 `--top-n` 截断进入分析（默认 20）
+- 去重后先做关键词打分排序，仅 `score >= 3` 的文章进入后续分析链路
+- 候选再按 `--top-n` 截断进入分析（默认 20）
 - 剩余候选会在邮件末尾追加“未分析但相关”的后续列表（默认再展示 20 条）
 
 代码入口：`/Users/baixue/news/main.py`
@@ -39,11 +40,11 @@
 - Student（英文）
 - Technician（德文）
 
-### 3.2 先审后发（关键）
+### 3.2 发送与转发（关键）
 
-- 默认运行：先发审核邮件到 `EMAIL_REVIEWER`（默认 `baixue243@gmail.com`）
-- 审核通过后：使用 `--approve-send` 正式发给其他收件人
-- 正式发送时会自动排除 reviewer，避免重复收到
+- 默认运行：按 `RECIPIENT_PROFILES` 发送（通常先发给自己）
+- 如需转发外部联系人：使用 `--forward`，从 `EXTERNAL_RECIPIENTS` 读取目标地址
+- `--forward` 只做额外转发，不替代主发送
 
 相关逻辑：`/Users/baixue/news/main.py`
 
@@ -58,13 +59,11 @@
 - `web`：普通网页抓取
 - `rss`：RSS 订阅
 - `dynamic`：动态页面（可选跳过）
-- `youtube`：YouTube 搜索与频道结果
+- YouTube 频道以 RSS 源形式接入（`source_type="rss"`）
 
 ### 4.2 来源优先级
 
-- 通过 `priority` 字段定义重要程度
-- 通过 `RSS_WEB_PRIORITY_SOURCES` 做 RSS/Web 白名单优先
-- 可用 `RSS_WEB_PRIORITY_ONLY=true` 强制只抓白名单
+- 通过 `priority` 字段定义重要程度（用于排序）
 
 ### 4.3 当前策略重点
 
@@ -76,7 +75,7 @@
 
 ## 5. 检索主题规则（6 大领域）
 
-定义在：`/Users/baixue/news/config.py` -> `TARGET_SEARCH_DOMAINS`
+定义在：`/Users/baixue/news/src/filters/ollama_filter.py` -> `DOMAIN_KEYWORDS`
 
 固定聚焦 6 类：
 1. Factory
@@ -98,7 +97,7 @@ Factory 进一步细分：
 
 核心文件：`/Users/baixue/news/src/filters/ollama_filter.py`
 
-当前采用“关键词打分 + 可选 LLM 校验 + 最低补量”的三段式。
+当前采用“关键词打分 + 分数门槛（score gate）”。
 
 ### 6.1 第一步：关键词打分（必走）
 
@@ -130,23 +129,13 @@ Factory 进一步细分：
   - `shorts` 且分数不高时降权（`-1`）
   - 播放量 `<10` 时降权（`-2`）
 
-### 6.4 LLM 二次校验（可选）
+### 6.4 分数门槛（当前生效）
 
-- 未使用 `--skip-llm-filter` 时执行
-- 提示词要求：必须同时满足“AI信号 + 六大工业领域之一”才返回 YES
-- LLM 返回 `None` 且关键词分数 `>=2` 时允许兜底放行
-- 支持限流参数：
-  - `KIMI_FILTER_MIN_REQUEST_INTERVAL_SECONDS`
-  - `KIMI_FILTER_RATE_LIMIT_BACKOFF_SECONDS`
-  - `KIMI_FILTER_RATE_LIMIT_MAX_RETRIES`
-  - `KIMI_FILTER_TIMEOUT_SECONDS`
+- 关键词评分后按分数降序
+- 仅 `score >= 3` 的文章进入后续分析链路
+- 不再执行 LLM YES/NO 相关性门禁
 
-### 6.5 最低补量策略
-
-- 当结果少于 `MIN_RELEVANT_ARTICLES` 时，从 `scored` 中按高分补齐
-- 仅补 `score>=2` 项，避免低质量内容回流
-
-### 6.6 过滤后排序与分析截断
+### 6.5 过滤后排序与分析截断
 
 - 过滤后的文章先排序：
   1. `relevance_score` 降序
@@ -154,6 +143,11 @@ Factory 进一步细分：
   3. `published_date` 降序
 - 再按 `--top-n` 截断进入分析（默认 20）
 - 截断后剩余最多 20 条在邮件末尾以简表展示
+
+### 6.6 多样性规则（当前生效）
+
+- 已删除 `one-per-source`（每源最多 1 条）规则
+- 仅保留 YouTube 配额上限：`ANALYSIS_MAX_YOUTUBE`
 
 ### 6.7 全量关键词列表（当前代码）
 
@@ -211,6 +205,8 @@ LLM 输出结构化字段（中/英/德 + 技术要点 + 场景要点）。
 
 - 只限英文输出（English-only）
 - 面向学习和理解
+- `Application` 显示 `summary_en`
+- `Explain` 优先显示 `simple_explanation`（无值回退 `summary_en`）
 
 ### 8.2 Technician 模板
 
@@ -230,11 +226,11 @@ LLM 输出结构化字段（中/英/德 + 技术要点 + 场景要点）。
 ### 9.1 常用命令
 
 ```bash
-# 默认：审核发送（发 reviewer）
+# 默认发送
 ./.venv/bin/python main.py --output email
 
-# 审核通过后：正式发送
-./.venv/bin/python main.py --output email --approve-send
+# 额外转发到 EXTERNAL_RECIPIENTS
+./.venv/bin/python main.py --output email --forward
 
 # 干跑（不发邮件）
 ./.venv/bin/python main.py --dry-run --output email
@@ -245,9 +241,9 @@ LLM 输出结构化字段（中/英/德 + 技术要点 + 场景要点）。
 
 ### 9.2 常用参数
 
-- `--approve-send`：审核通过后正式群发
+- `--forward`：在主发送后，额外转发到 `EXTERNAL_RECIPIENTS`
 - `--skip-dynamic`：跳过动态抓取
-- `--skip-llm-filter`：跳过 LLM 二次过滤
+- `--skip-llm-filter`：保留参数（当前相关性门禁为关键词分数，不影响主筛选）
 - `--top-n`：过滤后仅分析前 N 条（默认 20；`<=0` 不限制）
 - `--mock`：分析使用 mock 数据
 - `--strict`：任一关键步骤失败即退出
@@ -258,16 +254,14 @@ LLM 输出结构化字段（中/英/德 + 技术要点 + 场景要点）。
 
 配置文件：`/Users/baixue/news/config.py`
 
-- 来源与优先：`DATA_SOURCES`, `RSS_WEB_PRIORITY_SOURCES`, `RSS_WEB_PRIORITY_ONLY`
-- 领域聚焦：`TARGET_SEARCH_DOMAINS`
-- 过滤门槛：`RELEVANCE_THRESHOLD`, `MIN_RELEVANT_ARTICLES`
+- 来源与优先：`DATA_SOURCES`（含 `priority`）
+- 过滤门槛：`RELEVANCE_THRESHOLD`（关键词相关性阈值）
 - 关键词体系：`TECHNICIAN_KEYWORDS`, `HIGH_PRIORITY_KEYWORDS`, `MEDIUM_PRIORITY_KEYWORDS`, `HARD_EXCLUDE_NOISE_KEYWORDS`, `DOWNWEIGHT_NOISE_KEYWORDS`, `NEGATIVE_THEORY_ONLY_KEYWORDS`, `INDUSTRY_CONTEXT_KEYWORDS`
 - 收件画像：`RECIPIENT_PROFILES`
 
 `.env` 中建议设置：
 
 ```env
-EMAIL_REVIEWER=baixue243@gmail.com
 RELEVANCE_THRESHOLD=2
 ```
 
@@ -279,7 +273,7 @@ RELEVANCE_THRESHOLD=2
 
 优先检查：
 - 对应来源是否在 `DATA_SOURCES`
-- 是否被白名单策略排除（`RSS_WEB_PRIORITY_ONLY`）
+- 关键词分是否达到门槛（当前 `score >= 3`）
 - 是否因硬过滤词或 URL 规则被拦截（`HARD_EXCLUDE_NOISE_KEYWORDS` + press/contact URL 规则）
 
 ### 11.2 为什么技术员模板句子被截断

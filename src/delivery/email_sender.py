@@ -474,7 +474,7 @@ def render_digest(
                 else _clip(article.summary_en or "N/A", 140)
             )
             explain_compact = (
-                _clip(article.summary_en or "N/A", 200)
+                _clip(article.simple_explanation or article.summary_en or "N/A", 200)
                 if lang == "en"
                 else _clip(article.simple_explanation or "N/A", 200)
             )
@@ -539,7 +539,7 @@ def render_digest_text(
             category = _to_german_category(article.category_tag)
         else:
             display_title = _clip(article.title_en or article.title_de, 100)
-            explain = _clip(article.summary_en or "N/A", 180)
+            explain = _clip(article.simple_explanation or article.summary_en or "N/A", 180)
             app = _clip(article.summary_en or "N/A", 140)
             category = article.category_tag
         lines.append(f"[{category}] {display_title}")
